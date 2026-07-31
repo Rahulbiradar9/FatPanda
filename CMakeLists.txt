@@ -12,6 +12,7 @@ enable_testing()
 # Define the modular Chess Engine Library
 add_library(ChessEngineLib STATIC
     src/utils/version.cpp
+    src/board/board.cpp
 )
 
 # Set include directories
