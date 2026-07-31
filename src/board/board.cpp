@@ -2,6 +2,7 @@
 #include <iostream>
 #include <iomanip>
 #include <string>
+#include "board/movegen.hpp"
 
 namespace ChessEngine {
 
@@ -174,6 +175,104 @@ void Board::print() const {
     std::cout << "En Passant   : " << square_to_string(en_passant_) << "\n";
     std::cout << "Halfmove     : " << halfmove_clock_ << "\n";
     std::cout << "Fullmove     : " << fullmove_number_ << "\n\n";
+}
+
+bool Board::make_move(Move m) {
+    // 1. Back up state
+    Board backup = *this;
+
+    Square from = m.get_from();
+    Square to = m.get_to();
+    uint16_t flags = m.get_flags();
+    Piece moving_piece = get_piece(from);
+    Color us = side_to_move_;
+    Color opponent = ~us;
+
+    // Reset en-passant square for this move (might be set below for double pushes)
+    en_passant_ = Square::None;
+
+    // Increment clocks
+    halfmove_clock_++;
+    if (us == Color::Black) {
+        fullmove_number_++;
+    }
+
+    // Reset halfmove clock if pawn moves or captures
+    if (get_piece_type(moving_piece) == PieceType::Pawn || m.is_capture()) {
+        halfmove_clock_ = 0;
+    }
+
+    // Handle captures
+    if (m.is_capture()) {
+        if (m.is_en_passant()) {
+            Square cap_sq = make_square(get_file(to), get_rank(from));
+            set_piece(cap_sq, Piece::None);
+        } else {
+            set_piece(to, Piece::None);
+        }
+    }
+
+    // Handle promotion
+    if (m.is_promo()) {
+        Piece promo_piece = make_piece(us, m.get_promotion_piece_type());
+        set_piece(from, Piece::None);
+        set_piece(to, promo_piece);
+    } else {
+        // Normal move
+        set_piece(from, Piece::None);
+        set_piece(to, moving_piece);
+    }
+
+    // Handle castling rook movement
+    if (flags == MoveFlag::CASTLE_K) {
+        if (us == Color::White) {
+            set_piece(Square::H1, Piece::None);
+            set_piece(Square::F1, Piece::WhiteRook);
+        } else {
+            set_piece(Square::H8, Piece::None);
+            set_piece(Square::F8, Piece::BlackRook);
+        }
+    } else if (flags == MoveFlag::CASTLE_Q) {
+        if (us == Color::White) {
+            set_piece(Square::A1, Piece::None);
+            set_piece(Square::D1, Piece::WhiteRook);
+        } else {
+            set_piece(Square::A8, Piece::None);
+            set_piece(Square::D8, Piece::BlackRook);
+        }
+    }
+
+    // Handle pawn double push ep square setting
+    if (m.is_double_push()) {
+        int ep_rank = (us == Color::White) ? 2 : 5;
+        en_passant_ = make_square(get_file(from), ep_rank);
+    }
+
+    // Update castling rights
+    static constexpr std::array<uint8_t, 64> castling_mask = []() {
+        std::array<uint8_t, 64> mask{};
+        mask.fill(15);
+        mask[static_cast<size_t>(Square::A1)] = 13; // ~WQ (15 - 2)
+        mask[static_cast<size_t>(Square::H1)] = 14; // ~WK (15 - 1)
+        mask[static_cast<size_t>(Square::E1)] = 12; // ~(WK | WQ) (15 - 3)
+        mask[static_cast<size_t>(Square::A8)] = 7;  // ~BQ (15 - 8)
+        mask[static_cast<size_t>(Square::H8)] = 11; // ~BK (15 - 4)
+        mask[static_cast<size_t>(Square::E8)] = 3;  // ~(BK | BQ) (15 - 12)
+        return mask;
+    }();
+
+    castling_rights_ &= (castling_mask[static_cast<size_t>(from)] & castling_mask[static_cast<size_t>(to)]);
+
+    // Change side to move
+    side_to_move_ = opponent;
+
+    // Check if the move is legal
+    if (is_in_check(*this, us)) {
+        *this = backup;
+        return false;
+    }
+
+    return true;
 }
 
 } // namespace ChessEngine

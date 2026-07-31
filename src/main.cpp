@@ -3,6 +3,7 @@
 #include "utils/version.hpp"
 #include "board/board.hpp"
 #include "move/move.hpp"
+#include "board/movegen.hpp"
 
 int main() {
     std::cout << "Chess Engine v" << ChessEngine::get_version_string() << " Initialized." << std::endl;
@@ -34,6 +35,18 @@ int main() {
     std::cout << "Normal move e2-e4 (Double Push): " << normal_move.to_string() << "\n";
     std::cout << "Promotion d7-d8 to Queen       : " << promo_move.to_string() << "\n";
     std::cout << "Promotion capture c7-d8 to Rook: " << cap_promo.to_string() << "\n";
+
+    std::cout << "\nMove Generation verification:\n";
+    ChessEngine::Board test_board;
+    test_board.reset_to_start();
+    
+    auto legal_moves = ChessEngine::generate_legal_moves(test_board);
+    std::cout << "Starting position legal move count: " << legal_moves.size() << " (Expected: 20)\n";
+    std::cout << "Moves: ";
+    for (const auto& m : legal_moves) {
+        std::cout << m.to_string() << " ";
+    }
+    std::cout << "\n";
 
     return 0;
 }

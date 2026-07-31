@@ -6,6 +6,7 @@
 #include <string_view>
 #include "types.hpp"
 #include "bitboard.hpp"
+#include "move/move.hpp"
 
 namespace ChessEngine {
 
@@ -76,6 +77,9 @@ public:
 
     // Reconstruct FEN string from current board state
     std::string to_fen() const;
+
+    // Make a move on the board. Returns false if the move leaves the king in check (illegal).
+    bool make_move(Move m);
 
 private:
     // 12 Piece Bitboards

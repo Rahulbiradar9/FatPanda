@@ -22,6 +22,7 @@ add_executable(ChessEngineTests
     board_test.cpp
     fen_test.cpp
     move_test.cpp
+    movegen_test.cpp
 )
 
 # Link tests with googletest (gtest_main provides main()) and our engine logic library
