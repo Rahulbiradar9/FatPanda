@@ -1,0 +1,33 @@
+include(FetchContent)
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
+
+# Declare GoogleTest dependency
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+)
+
+# For Windows: prevent GTest from overriding compiler runtime settings (/MT vs /MD mismatch)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+
+# Download and load dependency
+FetchContent_MakeAvailable(googletest)
+
+# Define the unit tests executable
+add_executable(ChessEngineTests
+    dummy_test.cpp
+    bitboard_test.cpp
+)
+
+# Link tests with googletest (gtest_main provides main()) and our engine logic library
+target_link_libraries(ChessEngineTests
+    PRIVATE
+        gtest_main
+        ChessEngineLib
+)
+
+# Enable CTest discovery for GTest
+include(GoogleTest)
+gtest_discover_tests(ChessEngineTests)

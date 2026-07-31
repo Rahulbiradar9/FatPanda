@@ -1,0 +1,29 @@
+# CMake build directories
+/build/
+/out/
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln
+*.vcxproj
+*.filters
+*.proto.bin
+
+# Operating System Files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Compiler/build outputs
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
