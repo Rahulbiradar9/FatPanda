@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
+#include <string_view>
 #include "types.hpp"
 #include "bitboard.hpp"
 
@@ -68,6 +70,12 @@ public:
 
     // Print ASCII representation of the board to stdout for debugging
     void print() const;
+
+    // Load board state from a FEN string. Returns true if parsing succeeded.
+    bool load_from_fen(std::string_view fen);
+
+    // Reconstruct FEN string from current board state
+    std::string to_fen() const;
 
 private:
     // 12 Piece Bitboards

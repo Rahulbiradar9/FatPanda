@@ -13,6 +13,7 @@ enable_testing()
 add_library(ChessEngineLib STATIC
     src/utils/version.cpp
     src/board/board.cpp
+    src/board/fen.cpp
 )
 
 # Set include directories
