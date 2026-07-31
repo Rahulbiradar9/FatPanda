@@ -16,6 +16,7 @@ add_library(ChessEngineLib STATIC
     src/board/fen.cpp
     src/move/move.cpp
     src/board/movegen.cpp
+    src/evaluation/evaluation.cpp
 )
 
 # Set include directories

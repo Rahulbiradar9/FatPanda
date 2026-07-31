@@ -4,6 +4,7 @@
 #include "board/board.hpp"
 #include "move/move.hpp"
 #include "board/movegen.hpp"
+#include "evaluation/evaluation.hpp"
 
 int main() {
     std::cout << "Chess Engine v" << ChessEngine::get_version_string() << " Initialized." << std::endl;
@@ -47,6 +48,16 @@ int main() {
         std::cout << m.to_string() << " ";
     }
     std::cout << "\n";
+
+    std::cout << "\nStatic Evaluation verification:\n";
+    std::cout << "Starting position static evaluation score: " << ChessEngine::evaluate(test_board) << " cp\n";
+
+    // Unbalanced custom FEN position: White has extra Queen
+    ChessEngine::Board test_unbalanced;
+    const std::string unbalanced_fen = "rnb1kbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    if (test_unbalanced.load_from_fen(unbalanced_fen)) {
+        std::cout << "Extra White Queen position evaluation score: " << ChessEngine::evaluate(test_unbalanced) << " cp\n";
+    }
 
     return 0;
 }
