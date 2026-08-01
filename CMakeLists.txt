@@ -18,6 +18,7 @@ add_library(ChessEngineLib STATIC
     src/board/fen.cpp
     src/move/move.cpp
     src/board/movegen.cpp
+    src/board/perft.cpp
     src/evaluation/evaluation.cpp
     src/search/search.cpp
 )

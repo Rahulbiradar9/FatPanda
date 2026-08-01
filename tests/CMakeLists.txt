@@ -28,6 +28,7 @@ add_executable(ChessEngineTests
     chess_types_test.cpp
     bitboard_new_test.cpp
     attacks_test.cpp
+    perft_test.cpp
 )
 
 # Link tests with googletest (gtest_main provides main()) and our engine logic library
