@@ -89,25 +89,26 @@ struct AttackTables {
 // Global constexpr tables compiled directly into the binary
 inline constexpr AttackTables ATTACK_TABLES;
 
-// Inline helpers to query precalculated tables
-inline constexpr Bitboard get_pawn_attacks(Square sq, Color color) {
+// --- New CamelCase Attack Functions ---
+
+inline constexpr Bitboard getPawnAttacks(Square sq, Color color) {
     if (sq == Square::None || color == Color::None) return EMPTY_BOARD;
     return ATTACK_TABLES.pawn_attacks[static_cast<size_t>(color)][static_cast<size_t>(sq)];
 }
 
-inline constexpr Bitboard get_knight_attacks(Square sq) {
+inline constexpr Bitboard getKnightAttacks(Square sq) {
     if (sq == Square::None) return EMPTY_BOARD;
     return ATTACK_TABLES.knight_attacks[static_cast<size_t>(sq)];
 }
 
-inline constexpr Bitboard get_king_attacks(Square sq) {
+inline constexpr Bitboard getKingAttacks(Square sq) {
     if (sq == Square::None) return EMPTY_BOARD;
     return ATTACK_TABLES.king_attacks[static_cast<size_t>(sq)];
 }
 
 // Sliding attack generators computed on the fly via blocker scanning
 
-inline constexpr Bitboard get_bishop_attacks(Square sq, Bitboard occupancy) {
+inline constexpr Bitboard getBishopAttacks(Square sq, Bitboard occupancy) {
     Bitboard attacks = EMPTY_BOARD;
     if (sq == Square::None) return attacks;
 
@@ -142,7 +143,7 @@ inline constexpr Bitboard get_bishop_attacks(Square sq, Bitboard occupancy) {
     return attacks;
 }
 
-inline constexpr Bitboard get_rook_attacks(Square sq, Bitboard occupancy) {
+inline constexpr Bitboard getRookAttacks(Square sq, Bitboard occupancy) {
     Bitboard attacks = EMPTY_BOARD;
     if (sq == Square::None) return attacks;
 
@@ -177,8 +178,34 @@ inline constexpr Bitboard get_rook_attacks(Square sq, Bitboard occupancy) {
     return attacks;
 }
 
+inline constexpr Bitboard getQueenAttacks(Square sq, Bitboard occupancy) {
+    return getBishopAttacks(sq, occupancy) | getRookAttacks(sq, occupancy);
+}
+
+// --- Legacy Snake_case Attack Functions (Backward Compatibility) ---
+
+inline constexpr Bitboard get_pawn_attacks(Square sq, Color color) {
+    return getPawnAttacks(sq, color);
+}
+
+inline constexpr Bitboard get_knight_attacks(Square sq) {
+    return getKnightAttacks(sq);
+}
+
+inline constexpr Bitboard get_king_attacks(Square sq) {
+    return getKingAttacks(sq);
+}
+
+inline constexpr Bitboard get_bishop_attacks(Square sq, Bitboard occupancy) {
+    return getBishopAttacks(sq, occupancy);
+}
+
+inline constexpr Bitboard get_rook_attacks(Square sq, Bitboard occupancy) {
+    return getRookAttacks(sq, occupancy);
+}
+
 inline constexpr Bitboard get_queen_attacks(Square sq, Bitboard occupancy) {
-    return get_bishop_attacks(sq, occupancy) | get_rook_attacks(sq, occupancy);
+    return getQueenAttacks(sq, occupancy);
 }
 
 } // namespace ChessEngine
