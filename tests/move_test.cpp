@@ -116,3 +116,38 @@ TEST(MoveTest, ConstexprMoveVerification) {
     static_assert(promo_cap.is_capture(), "Is capture check");
     static_assert(promo_cap.get_promotion_piece_type() == PieceType::Queen, "Promo type check");
 }
+
+// Test the new compact Move representation and camelCase helpers
+TEST(MoveTest, CompactMoveRepresentationAndCamelCaseHelpers) {
+    // Standard move with captured and promotion pieces
+    Move m(Square::E2, Square::E4, PieceType::Pawn, PieceType::None, MoveFlag::NORMAL);
+    EXPECT_EQ(m.getSourceSquare(), Square::E2);
+    EXPECT_EQ(m.getDestinationSquare(), Square::E4);
+    EXPECT_EQ(m.getCapturedPieceType(), PieceType::Pawn);
+    EXPECT_EQ(m.getPromotionPieceType(), PieceType::None);
+    EXPECT_FALSE(m.isCastling());
+    EXPECT_FALSE(m.isEnPassant());
+    EXPECT_FALSE(m.isDoublePawnPush());
+    EXPECT_TRUE(m.isCapture());
+    EXPECT_FALSE(m.isPromotion());
+    EXPECT_EQ(m.toString(), "e2e4");
+
+    // Double Pawn Push
+    Move double_push(Square::E2, Square::E4, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH);
+    EXPECT_TRUE(double_push.isDoublePawnPush());
+    EXPECT_FALSE(double_push.isCastling());
+    EXPECT_FALSE(double_push.isEnPassant());
+
+    // Castling Kingside
+    Move castle_k(Square::E1, Square::G1, PieceType::None, PieceType::None, MoveFlag::CASTLE_K);
+    EXPECT_TRUE(castle_k.isCastling());
+    EXPECT_FALSE(castle_k.isEnPassant());
+
+    // Promotion Capture
+    Move promo_cap(Square::D7, Square::E8, PieceType::Rook, PieceType::Queen);
+    EXPECT_TRUE(promo_cap.isPromotion());
+    EXPECT_TRUE(promo_cap.isCapture());
+    EXPECT_EQ(promo_cap.getCapturedPieceType(), PieceType::Rook);
+    EXPECT_EQ(promo_cap.getPromotionPieceType(), PieceType::Queen);
+    EXPECT_EQ(promo_cap.toString(), "d7e8q");
+}
