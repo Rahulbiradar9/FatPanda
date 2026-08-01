@@ -99,3 +99,26 @@ TEST(FenTest, InvalidFenParsing) {
     // Invalid fullmove number
     EXPECT_FALSE(board.load_from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0"));
 }
+
+// Test loadFromFen and toFen camelCase methods with standard chess positions
+TEST(FenTest, StandardPositionsCamelCase) {
+    Board board;
+
+    std::vector<std::string> standard_fens = {
+        // Kiwipete
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+        // Position 3
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+        // Position 4
+        "r3k2r/Pbpnq1p1/1p1p1p1p/6P1/2B1P3/Q1N2N2/P1PB1P1P/R3K2R b KQkq - 0 1",
+        // Position 5
+        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+        // Position 6
+        "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10"
+    };
+
+    for (const auto& fen : standard_fens) {
+        EXPECT_TRUE(board.loadFromFen(fen));
+        EXPECT_EQ(board.toFen(), fen);
+    }
+}

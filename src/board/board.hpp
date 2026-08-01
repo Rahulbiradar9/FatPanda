@@ -88,6 +88,8 @@ public:
     void removePiece(Square sq);
     void movePiece(Square from, Square to);
     void printBoard() const;
+    bool loadFromFen(std::string_view fen);
+    std::string toFen() const;
 
 private:
     // 12 Piece Bitboards

@@ -301,4 +301,12 @@ void Board::printBoard() const {
     print();
 }
 
+bool Board::loadFromFen(std::string_view fen) {
+    return load_from_fen(fen);
+}
+
+std::string Board::toFen() const {
+    return to_fen();
+}
+
 } // namespace ChessEngine
