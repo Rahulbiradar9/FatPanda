@@ -128,3 +128,28 @@ TEST(BoardTest, SetPieceUpdatesOccupancies) {
     EXPECT_FALSE(test_bit(board.get_occupancy(Color::Black), Square::E4));
     EXPECT_FALSE(test_bit(board.get_occupancy(Color::None), Square::E4));
 }
+
+// Test starting position and core board operations using new camelCase methods
+TEST(BoardTest, StartingPositionCamelCase) {
+    Board board;
+    board.setStartingPosition();
+
+    // Verify starting pieces
+    EXPECT_EQ(board.getPiece(Square::E1), Piece::WhiteKing);
+    EXPECT_EQ(board.getPiece(Square::E8), Piece::BlackKing);
+    EXPECT_EQ(board.getPiece(Square::A1), Piece::WhiteRook);
+    EXPECT_EQ(board.getPiece(Square::D8), Piece::BlackQueen);
+
+    // Place a piece
+    board.placePiece(Square::E4, Piece::WhiteQueen);
+    EXPECT_EQ(board.getPiece(Square::E4), Piece::WhiteQueen);
+
+    // Move a piece
+    board.movePiece(Square::E4, Square::E5);
+    EXPECT_EQ(board.getPiece(Square::E4), Piece::None);
+    EXPECT_EQ(board.getPiece(Square::E5), Piece::WhiteQueen);
+
+    // Remove a piece
+    board.removePiece(Square::E5);
+    EXPECT_EQ(board.getPiece(Square::E5), Piece::None);
+}

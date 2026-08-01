@@ -81,6 +81,14 @@ public:
     // Make a move on the board. Returns false if the move leaves the king in check (illegal).
     bool make_move(Move m);
 
+    // New CamelCase Board Operations (New Requirements)
+    void setStartingPosition();
+    Piece getPiece(Square sq) const;
+    void placePiece(Square sq, Piece p);
+    void removePiece(Square sq);
+    void movePiece(Square from, Square to);
+    void printBoard() const;
+
 private:
     // 12 Piece Bitboards
     std::array<Bitboard, 12> pieces_;

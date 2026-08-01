@@ -275,4 +275,30 @@ bool Board::make_move(Move m) {
     return true;
 }
 
+void Board::setStartingPosition() {
+    reset_to_start();
+}
+
+Piece Board::getPiece(Square sq) const {
+    return get_piece(sq);
+}
+
+void Board::placePiece(Square sq, Piece p) {
+    set_piece(sq, p);
+}
+
+void Board::removePiece(Square sq) {
+    set_piece(sq, Piece::None);
+}
+
+void Board::movePiece(Square from, Square to) {
+    Piece p = get_piece(from);
+    set_piece(from, Piece::None);
+    set_piece(to, p);
+}
+
+void Board::printBoard() const {
+    print();
+}
+
 } // namespace ChessEngine
