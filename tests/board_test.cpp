@@ -153,3 +153,67 @@ TEST(BoardTest, StartingPositionCamelCase) {
     board.removePiece(Square::E5);
     EXPECT_EQ(board.getPiece(Square::E5), Piece::None);
 }
+
+// Test makeMove and unmakeMove functionality with UndoState
+TEST(BoardTest, MakeMoveUnmakeMoveAndUndoState) {
+    Board board;
+    board.setStartingPosition();
+
+    // 1. Normal Pawn Push (e2e4)
+    Board initial_board = board;
+    Move m1(Square::E2, Square::E4, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH);
+    UndoState undo1;
+
+    EXPECT_TRUE(board.makeMove(m1, undo1));
+    EXPECT_EQ(board.getPiece(Square::E2), Piece::None);
+    EXPECT_EQ(board.getPiece(Square::E4), Piece::WhitePawn);
+    EXPECT_EQ(board.get_en_passant(), Square::E3);
+    EXPECT_EQ(board.get_side_to_move(), Color::Black);
+
+    board.unmakeMove(m1, undo1);
+    // Compare full board state by FEN
+    EXPECT_EQ(board.toFen(), initial_board.toFen());
+
+    // 2. Normal Capture Move (d4xe5)
+    // Load a position with capture opportunity
+    ASSERT_TRUE(board.loadFromFen("rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2"));
+    Board pre_cap_board = board;
+    Move m2(Square::E5, Square::D6, PieceType::Pawn, PieceType::None, MoveFlag::EN_PASSANT);
+    UndoState undo2;
+
+    EXPECT_TRUE(board.makeMove(m2, undo2));
+    EXPECT_EQ(board.getPiece(Square::D5), Piece::None); // Captured pawn removed
+    EXPECT_EQ(board.getPiece(Square::D6), Piece::WhitePawn);
+    EXPECT_EQ(board.get_en_passant(), Square::None);
+
+    board.unmakeMove(m2, undo2);
+    EXPECT_EQ(board.toFen(), pre_cap_board.toFen());
+
+    // 3. Promotion Move
+    ASSERT_TRUE(board.loadFromFen("8/4P3/8/8/8/8/8/4K3 w - - 0 1"));
+    Board pre_promo_board = board;
+    Move m3(Square::E7, Square::E8, PieceType::None, PieceType::Queen, MoveFlag::PROMO_Q);
+    UndoState undo3;
+
+    EXPECT_TRUE(board.makeMove(m3, undo3));
+    EXPECT_EQ(board.getPiece(Square::E7), Piece::None);
+    EXPECT_EQ(board.getPiece(Square::E8), Piece::WhiteQueen);
+
+    board.unmakeMove(m3, undo3);
+    EXPECT_EQ(board.toFen(), pre_promo_board.toFen());
+
+    // 4. Castling Move
+    ASSERT_TRUE(board.loadFromFen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1"));
+    Board pre_castle_board = board;
+    Move m4(Square::E1, Square::G1, PieceType::None, PieceType::None, MoveFlag::CASTLE_K);
+    UndoState undo4;
+
+    EXPECT_TRUE(board.makeMove(m4, undo4));
+    EXPECT_EQ(board.getPiece(Square::E1), Piece::None);
+    EXPECT_EQ(board.getPiece(Square::G1), Piece::WhiteKing);
+    EXPECT_EQ(board.getPiece(Square::H1), Piece::None);
+    EXPECT_EQ(board.getPiece(Square::F1), Piece::WhiteRook);
+
+    board.unmakeMove(m4, undo4);
+    EXPECT_EQ(board.toFen(), pre_castle_board.toFen());
+}

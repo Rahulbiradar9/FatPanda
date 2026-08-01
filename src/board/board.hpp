@@ -20,6 +20,14 @@ namespace Castling {
     constexpr uint8_t NONE = 0;
 }
 
+struct UndoState {
+    Square enPassant;
+    uint8_t castlingRights;
+    int halfmoveClock;
+    int fullmoveNumber;
+    Piece capturedPiece;
+};
+
 class Board {
 public:
     Board();
@@ -90,6 +98,8 @@ public:
     void printBoard() const;
     bool loadFromFen(std::string_view fen);
     std::string toFen() const;
+    bool makeMove(Move m, UndoState& undo);
+    void unmakeMove(Move m, const UndoState& undo);
 
 private:
     // 12 Piece Bitboards

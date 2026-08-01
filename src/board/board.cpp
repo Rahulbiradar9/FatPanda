@@ -178,101 +178,8 @@ void Board::print() const {
 }
 
 bool Board::make_move(Move m) {
-    // 1. Back up state
-    Board backup = *this;
-
-    Square from = m.get_from();
-    Square to = m.get_to();
-    uint16_t flags = m.get_flags();
-    Piece moving_piece = get_piece(from);
-    Color us = side_to_move_;
-    Color opponent = ~us;
-
-    // Reset en-passant square for this move (might be set below for double pushes)
-    en_passant_ = Square::None;
-
-    // Increment clocks
-    halfmove_clock_++;
-    if (us == Color::Black) {
-        fullmove_number_++;
-    }
-
-    // Reset halfmove clock if pawn moves or captures
-    if (get_piece_type(moving_piece) == PieceType::Pawn || m.is_capture()) {
-        halfmove_clock_ = 0;
-    }
-
-    // Handle captures
-    if (m.is_capture()) {
-        if (m.is_en_passant()) {
-            Square cap_sq = make_square(get_file(to), get_rank(from));
-            set_piece(cap_sq, Piece::None);
-        } else {
-            set_piece(to, Piece::None);
-        }
-    }
-
-    // Handle promotion
-    if (m.is_promo()) {
-        Piece promo_piece = make_piece(us, m.get_promotion_piece_type());
-        set_piece(from, Piece::None);
-        set_piece(to, promo_piece);
-    } else {
-        // Normal move
-        set_piece(from, Piece::None);
-        set_piece(to, moving_piece);
-    }
-
-    // Handle castling rook movement
-    if (flags == MoveFlag::CASTLE_K) {
-        if (us == Color::White) {
-            set_piece(Square::H1, Piece::None);
-            set_piece(Square::F1, Piece::WhiteRook);
-        } else {
-            set_piece(Square::H8, Piece::None);
-            set_piece(Square::F8, Piece::BlackRook);
-        }
-    } else if (flags == MoveFlag::CASTLE_Q) {
-        if (us == Color::White) {
-            set_piece(Square::A1, Piece::None);
-            set_piece(Square::D1, Piece::WhiteRook);
-        } else {
-            set_piece(Square::A8, Piece::None);
-            set_piece(Square::D8, Piece::BlackRook);
-        }
-    }
-
-    // Handle pawn double push ep square setting
-    if (m.is_double_push()) {
-        int ep_rank = (us == Color::White) ? 2 : 5;
-        en_passant_ = make_square(get_file(from), ep_rank);
-    }
-
-    // Update castling rights
-    static constexpr std::array<uint8_t, 64> castling_mask = []() {
-        std::array<uint8_t, 64> mask{};
-        mask.fill(15);
-        mask[static_cast<size_t>(Square::A1)] = 13; // ~WQ (15 - 2)
-        mask[static_cast<size_t>(Square::H1)] = 14; // ~WK (15 - 1)
-        mask[static_cast<size_t>(Square::E1)] = 12; // ~(WK | WQ) (15 - 3)
-        mask[static_cast<size_t>(Square::A8)] = 7;  // ~BQ (15 - 8)
-        mask[static_cast<size_t>(Square::H8)] = 11; // ~BK (15 - 4)
-        mask[static_cast<size_t>(Square::E8)] = 3;  // ~(BK | BQ) (15 - 12)
-        return mask;
-    }();
-
-    castling_rights_ &= (castling_mask[static_cast<size_t>(from)] & castling_mask[static_cast<size_t>(to)]);
-
-    // Change side to move
-    side_to_move_ = opponent;
-
-    // Check if the move is legal
-    if (is_in_check(*this, us)) {
-        *this = backup;
-        return false;
-    }
-
-    return true;
+    UndoState undo;
+    return makeMove(m, undo);
 }
 
 void Board::setStartingPosition() {
@@ -307,6 +214,180 @@ bool Board::loadFromFen(std::string_view fen) {
 
 std::string Board::toFen() const {
     return to_fen();
+}
+
+bool Board::makeMove(Move m, UndoState& undo) {
+    // 1. Save state in UndoState
+    undo.enPassant = en_passant_;
+    undo.castlingRights = castling_rights_;
+    undo.halfmoveClock = halfmove_clock_;
+    undo.fullmoveNumber = fullmove_number_;
+
+    Square from = m.getSourceSquare();
+    Square to = m.getDestinationSquare();
+    Piece moving_piece = get_piece(from);
+    Color us = side_to_move_;
+    Color opponent = ~us;
+
+    // Determine and save captured piece
+    Piece captured = Piece::None;
+    if (m.isCapture()) {
+        if (m.isEnPassant()) {
+            captured = (us == Color::White) ? Piece::BlackPawn : Piece::WhitePawn;
+        } else {
+            captured = get_piece(to);
+        }
+    }
+    undo.capturedPiece = captured;
+
+    // Reset en-passant square for this move (might be set below for double pushes)
+    en_passant_ = Square::None;
+
+    // Increment clocks
+    halfmove_clock_++;
+    if (us == Color::Black) {
+        fullmove_number_++;
+    }
+
+    // Reset halfmove clock if pawn moves or captures
+    if (get_piece_type(moving_piece) == PieceType::Pawn || m.isCapture()) {
+        halfmove_clock_ = 0;
+    }
+
+    // Handle captures
+    if (m.isCapture()) {
+        if (m.isEnPassant()) {
+            Square cap_sq = make_square(get_file(to), get_rank(from));
+            set_piece(cap_sq, Piece::None);
+        } else {
+            set_piece(to, Piece::None);
+        }
+    }
+
+    // Handle promotion or normal move
+    if (m.isPromotion()) {
+        Piece promo_piece = make_piece(us, m.getPromotionPieceType());
+        set_piece(from, Piece::None);
+        set_piece(to, promo_piece);
+    } else {
+        set_piece(from, Piece::None);
+        set_piece(to, moving_piece);
+    }
+
+    // Handle castling rook movement
+    if (m.isCastling()) {
+        int file_diff = get_file(to) - get_file(from);
+        if (file_diff > 0) {
+            // Kingside
+            if (us == Color::White) {
+                set_piece(Square::H1, Piece::None);
+                set_piece(Square::F1, Piece::WhiteRook);
+            } else {
+                set_piece(Square::H8, Piece::None);
+                set_piece(Square::F8, Piece::BlackRook);
+            }
+        } else {
+            // Queenside
+            if (us == Color::White) {
+                set_piece(Square::A1, Piece::None);
+                set_piece(Square::D1, Piece::WhiteRook);
+            } else {
+                set_piece(Square::A8, Piece::None);
+                set_piece(Square::D8, Piece::BlackRook);
+            }
+        }
+    }
+
+    // Handle pawn double push
+    if (m.isDoublePawnPush()) {
+        int ep_rank = (us == Color::White) ? 2 : 5;
+        en_passant_ = make_square(get_file(from), ep_rank);
+    }
+
+    // Update castling rights
+    static constexpr std::array<uint8_t, 64> castling_mask = []() {
+        std::array<uint8_t, 64> mask{};
+        mask.fill(15);
+        mask[static_cast<size_t>(Square::A1)] = 13; // ~WQ (15 - 2)
+        mask[static_cast<size_t>(Square::H1)] = 14; // ~WK (15 - 1)
+        mask[static_cast<size_t>(Square::E1)] = 12; // ~(WK | WQ) (15 - 3)
+        mask[static_cast<size_t>(Square::A8)] = 7;  // ~BQ (15 - 8)
+        mask[static_cast<size_t>(Square::H8)] = 11; // ~BK (15 - 4)
+        mask[static_cast<size_t>(Square::E8)] = 3;  // ~(BK | BQ) (15 - 12)
+        return mask;
+    }();
+
+    castling_rights_ &= (castling_mask[static_cast<size_t>(from)] & castling_mask[static_cast<size_t>(to)]);
+
+    // Swap side to move
+    side_to_move_ = opponent;
+
+    // Check legality: King must not be left in check
+    if (is_in_check(*this, us)) {
+        unmakeMove(m, undo);
+        return false;
+    }
+
+    return true;
+}
+
+void Board::unmakeMove(Move m, const UndoState& undo) {
+    // 1. Swap side to move back
+    side_to_move_ = ~side_to_move_;
+
+    // 2. Restore basic game state variables
+    en_passant_ = undo.enPassant;
+    castling_rights_ = undo.castlingRights;
+    halfmove_clock_ = undo.halfmoveClock;
+    fullmove_number_ = undo.fullmoveNumber;
+
+    Square from = m.getSourceSquare();
+    Square to = m.getDestinationSquare();
+
+    // 3. Move pieces back
+    if (m.isPromotion()) {
+        Piece pawn = make_piece(side_to_move_, PieceType::Pawn);
+        set_piece(to, Piece::None);
+        set_piece(from, pawn);
+    } else {
+        Piece moving_piece = get_piece(to);
+        set_piece(to, Piece::None);
+        set_piece(from, moving_piece);
+    }
+
+    // 4. Restore captured piece
+    if (m.isCapture()) {
+        if (m.isEnPassant()) {
+            Square cap_sq = make_square(get_file(to), get_rank(from));
+            set_piece(cap_sq, undo.capturedPiece);
+        } else {
+            set_piece(to, undo.capturedPiece);
+        }
+    }
+
+    // 5. Restore castling rooks (if castling move)
+    if (m.isCastling()) {
+        int file_diff = get_file(to) - get_file(from);
+        if (file_diff > 0) {
+            // Kingside
+            if (side_to_move_ == Color::White) {
+                set_piece(Square::F1, Piece::None);
+                set_piece(Square::H1, Piece::WhiteRook);
+            } else {
+                set_piece(Square::F8, Piece::None);
+                set_piece(Square::H8, Piece::BlackRook);
+            }
+        } else {
+            // Queenside
+            if (side_to_move_ == Color::White) {
+                set_piece(Square::D1, Piece::None);
+                set_piece(Square::A1, Piece::WhiteRook);
+            } else {
+                set_piece(Square::D8, Piece::None);
+                set_piece(Square::A8, Piece::BlackRook);
+            }
+        }
+    }
 }
 
 } // namespace ChessEngine
