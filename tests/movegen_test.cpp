@@ -133,3 +133,32 @@ TEST(MoveGenTest, PawnPromotions) {
     // Normal non-promoting moves must not exist
     EXPECT_FALSE(move_exists(moves, Square::E7, Square::E8, MoveFlag::NORMAL));
 }
+
+// Test pseudo-legal move generation with camelCase helper
+TEST(MoveGenTest, PseudoLegalMoveGenCamelCase) {
+    Board board;
+    board.setStartingPosition();
+
+    // Verify starting position pseudo-legal moves
+    std::vector<Move> moves = generatePseudoLegalMoves(board);
+    EXPECT_EQ(moves.size(), 20);
+
+    // Verify that a double push exists
+    EXPECT_TRUE(move_exists(moves, Square::E2, Square::E4, MoveFlag::DOUBLE_PUSH));
+
+    // Verify captured piece properties on a custom capture position
+    // White pawn on d4, Black pawn on e5. d4xe5 is a capture.
+    std::string capture_fen = "rnbqkbnr/pppp1ppp/8/4p3/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2";
+    EXPECT_TRUE(board.loadFromFen(capture_fen));
+
+    std::vector<Move> cap_moves = generatePseudoLegalMoves(board);
+    bool found_capture = false;
+    for (const auto& m : cap_moves) {
+        if (m.getSourceSquare() == Square::D4 && m.getDestinationSquare() == Square::E5) {
+            EXPECT_TRUE(m.isCapture());
+            EXPECT_EQ(m.getCapturedPieceType(), PieceType::Pawn);
+            found_capture = true;
+        }
+    }
+    EXPECT_TRUE(found_capture);
+}

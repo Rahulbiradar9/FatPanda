@@ -10,8 +10,6 @@ bool is_square_attacked(const Board& board, Square sq, Color attacker) {
     Bitboard occupancy = board.get_occupancy(Color::None);
 
     // 1. Attack by Pawns
-    // If the attacker has pawns, check if any of them can attack sq.
-    // The pawn attacks are checked by looking at the pawn attacks from sq as if sq was a defender pawn.
     Bitboard pawn_attackers = get_pawn_attacks(sq, defender);
     if (pawn_attackers & board.get_piece_bitboard(make_piece(attacker, PieceType::Pawn))) {
         return true;
@@ -55,7 +53,7 @@ bool is_in_check(const Board& board, Color color) {
     return is_square_attacked(board, king_sq, ~color);
 }
 
-std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
+std::vector<Move> generatePseudoLegalMoves(const Board& board) {
     std::vector<Move> moves;
     moves.reserve(100);
 
@@ -76,17 +74,17 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
             Square to_push = static_cast<Square>(static_cast<uint8_t>(from) + 8);
             if (!test_bit(both_occ, to_push)) {
                 if (get_rank(to_push) == 7) {
-                    moves.emplace_back(from, to_push, MoveFlag::PROMO_N);
-                    moves.emplace_back(from, to_push, MoveFlag::PROMO_B);
-                    moves.emplace_back(from, to_push, MoveFlag::PROMO_R);
-                    moves.emplace_back(from, to_push, MoveFlag::PROMO_Q);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Knight, MoveFlag::PROMO_N);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Bishop, MoveFlag::PROMO_B);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Rook, MoveFlag::PROMO_R);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Queen, MoveFlag::PROMO_Q);
                 } else {
-                    moves.emplace_back(from, to_push, MoveFlag::NORMAL);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::None, MoveFlag::NORMAL);
                     // Double Push
                     if (rank == 1) {
                         Square to_double = static_cast<Square>(static_cast<uint8_t>(from) + 16);
                         if (!test_bit(both_occ, to_double)) {
-                            moves.emplace_back(from, to_double, MoveFlag::DOUBLE_PUSH);
+                            moves.emplace_back(from, to_double, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH);
                         }
                     }
                 }
@@ -97,37 +95,38 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
             Bitboard capture_targets = attacks & their_occ;
             while (capture_targets) {
                 Square to_cap = pop_lsb(capture_targets);
+                PieceType cap_type = get_piece_type(board.get_piece(to_cap));
                 if (get_rank(to_cap) == 7) {
-                    moves.emplace_back(from, to_cap, MoveFlag::PROMO_N_CAP);
-                    moves.emplace_back(from, to_cap, MoveFlag::PROMO_B_CAP);
-                    moves.emplace_back(from, to_cap, MoveFlag::PROMO_R_CAP);
-                    moves.emplace_back(from, to_cap, MoveFlag::PROMO_Q_CAP);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::Knight, MoveFlag::PROMO_N_CAP);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::Bishop, MoveFlag::PROMO_B_CAP);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::Rook, MoveFlag::PROMO_R_CAP);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::Queen, MoveFlag::PROMO_Q_CAP);
                 } else {
-                    moves.emplace_back(from, to_cap, MoveFlag::CAPTURE);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::None, MoveFlag::CAPTURE);
                 }
             }
 
             // En Passant
             Square ep_sq = board.get_en_passant();
             if (ep_sq != Square::None && test_bit(attacks, ep_sq)) {
-                moves.emplace_back(from, ep_sq, MoveFlag::EN_PASSANT);
+                moves.emplace_back(from, ep_sq, PieceType::Pawn, PieceType::None, MoveFlag::EN_PASSANT);
             }
         } else {
             // Black pawn pushes
             Square to_push = static_cast<Square>(static_cast<uint8_t>(from) - 8);
             if (!test_bit(both_occ, to_push)) {
                 if (get_rank(to_push) == 0) {
-                    moves.emplace_back(from, to_push, MoveFlag::PROMO_N);
-                    moves.emplace_back(from, to_push, MoveFlag::PROMO_B);
-                    moves.emplace_back(from, to_push, MoveFlag::PROMO_R);
-                    moves.emplace_back(from, to_push, MoveFlag::PROMO_Q);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Knight, MoveFlag::PROMO_N);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Bishop, MoveFlag::PROMO_B);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Rook, MoveFlag::PROMO_R);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Queen, MoveFlag::PROMO_Q);
                 } else {
-                    moves.emplace_back(from, to_push, MoveFlag::NORMAL);
+                    moves.emplace_back(from, to_push, PieceType::None, PieceType::None, MoveFlag::NORMAL);
                     // Double Push
                     if (rank == 6) {
                         Square to_double = static_cast<Square>(static_cast<uint8_t>(from) - 16);
                         if (!test_bit(both_occ, to_double)) {
-                            moves.emplace_back(from, to_double, MoveFlag::DOUBLE_PUSH);
+                            moves.emplace_back(from, to_double, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH);
                         }
                     }
                 }
@@ -138,20 +137,21 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
             Bitboard capture_targets = attacks & their_occ;
             while (capture_targets) {
                 Square to_cap = pop_lsb(capture_targets);
+                PieceType cap_type = get_piece_type(board.get_piece(to_cap));
                 if (get_rank(to_cap) == 0) {
-                    moves.emplace_back(from, to_cap, MoveFlag::PROMO_N_CAP);
-                    moves.emplace_back(from, to_cap, MoveFlag::PROMO_B_CAP);
-                    moves.emplace_back(from, to_cap, MoveFlag::PROMO_R_CAP);
-                    moves.emplace_back(from, to_cap, MoveFlag::PROMO_Q_CAP);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::Knight, MoveFlag::PROMO_N_CAP);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::Bishop, MoveFlag::PROMO_B_CAP);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::Rook, MoveFlag::PROMO_R_CAP);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::Queen, MoveFlag::PROMO_Q_CAP);
                 } else {
-                    moves.emplace_back(from, to_cap, MoveFlag::CAPTURE);
+                    moves.emplace_back(from, to_cap, cap_type, PieceType::None, MoveFlag::CAPTURE);
                 }
             }
 
             // En Passant
             Square ep_sq = board.get_en_passant();
             if (ep_sq != Square::None && test_bit(attacks, ep_sq)) {
-                moves.emplace_back(from, ep_sq, MoveFlag::EN_PASSANT);
+                moves.emplace_back(from, ep_sq, PieceType::Pawn, PieceType::None, MoveFlag::EN_PASSANT);
             }
         }
     }
@@ -164,9 +164,10 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
         while (targets) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
-                moves.emplace_back(from, to, MoveFlag::CAPTURE);
+                PieceType cap_type = get_piece_type(board.get_piece(to));
+                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
             } else {
-                moves.emplace_back(from, to, MoveFlag::NORMAL);
+                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
             }
         }
     }
@@ -179,9 +180,10 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
         while (targets) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
-                moves.emplace_back(from, to, MoveFlag::CAPTURE);
+                PieceType cap_type = get_piece_type(board.get_piece(to));
+                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
             } else {
-                moves.emplace_back(from, to, MoveFlag::NORMAL);
+                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
             }
         }
     }
@@ -194,9 +196,10 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
         while (targets) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
-                moves.emplace_back(from, to, MoveFlag::CAPTURE);
+                PieceType cap_type = get_piece_type(board.get_piece(to));
+                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
             } else {
-                moves.emplace_back(from, to, MoveFlag::NORMAL);
+                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
             }
         }
     }
@@ -209,9 +212,10 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
         while (targets) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
-                moves.emplace_back(from, to, MoveFlag::CAPTURE);
+                PieceType cap_type = get_piece_type(board.get_piece(to));
+                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
             } else {
-                moves.emplace_back(from, to, MoveFlag::NORMAL);
+                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
             }
         }
     }
@@ -224,9 +228,10 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
         while (targets) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
-                moves.emplace_back(from, to, MoveFlag::CAPTURE);
+                PieceType cap_type = get_piece_type(board.get_piece(to));
+                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
             } else {
-                moves.emplace_back(from, to, MoveFlag::NORMAL);
+                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
             }
         }
 
@@ -239,7 +244,7 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
                     if (!test_bit(both_occ, Square::F1) && !test_bit(both_occ, Square::G1)) {
                         if (!is_square_attacked(board, Square::F1, Color::Black) &&
                             !is_square_attacked(board, Square::G1, Color::Black)) {
-                            moves.emplace_back(Square::E1, Square::G1, MoveFlag::CASTLE_K);
+                            moves.emplace_back(Square::E1, Square::G1, PieceType::None, PieceType::None, MoveFlag::CASTLE_K);
                         }
                     }
                 }
@@ -248,7 +253,7 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
                     if (!test_bit(both_occ, Square::D1) && !test_bit(both_occ, Square::C1) && !test_bit(both_occ, Square::B1)) {
                         if (!is_square_attacked(board, Square::D1, Color::Black) &&
                             !is_square_attacked(board, Square::C1, Color::Black)) {
-                            moves.emplace_back(Square::E1, Square::C1, MoveFlag::CASTLE_Q);
+                            moves.emplace_back(Square::E1, Square::C1, PieceType::None, PieceType::None, MoveFlag::CASTLE_Q);
                         }
                     }
                 }
@@ -258,7 +263,7 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
                     if (!test_bit(both_occ, Square::F8) && !test_bit(both_occ, Square::G8)) {
                         if (!is_square_attacked(board, Square::F8, Color::White) &&
                             !is_square_attacked(board, Square::G8, Color::White)) {
-                            moves.emplace_back(Square::E8, Square::G8, MoveFlag::CASTLE_K);
+                            moves.emplace_back(Square::E8, Square::G8, PieceType::None, PieceType::None, MoveFlag::CASTLE_K);
                         }
                     }
                 }
@@ -267,7 +272,7 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
                     if (!test_bit(both_occ, Square::D8) && !test_bit(both_occ, Square::C8) && !test_bit(both_occ, Square::B8)) {
                         if (!is_square_attacked(board, Square::D8, Color::White) &&
                             !is_square_attacked(board, Square::C8, Color::White)) {
-                            moves.emplace_back(Square::E8, Square::C8, MoveFlag::CASTLE_Q);
+                            moves.emplace_back(Square::E8, Square::C8, PieceType::None, PieceType::None, MoveFlag::CASTLE_Q);
                         }
                     }
                 }
@@ -278,8 +283,12 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
     return moves;
 }
 
+std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
+    return generatePseudoLegalMoves(board);
+}
+
 std::vector<Move> generate_legal_moves(Board& board) {
-    std::vector<Move> pseudo = generate_pseudo_legal_moves(board);
+    std::vector<Move> pseudo = generatePseudoLegalMoves(board);
     std::vector<Move> legal;
     legal.reserve(pseudo.size());
 
