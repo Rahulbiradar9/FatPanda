@@ -8,8 +8,18 @@ using namespace ChessEngine;
 
 // Helper to check if a specific move exists in a vector of moves
 bool move_exists(const std::vector<Move>& moves, Square from, Square to, uint16_t flags = MoveFlag::NORMAL) {
-    Move target(from, to, flags);
-    return std::find(moves.begin(), moves.end(), target) != moves.end();
+    for (const auto& m : moves) {
+        if (m.get_from() == from && m.get_to() == to) {
+            if (flags == MoveFlag::CAPTURE) {
+                if (m.is_capture()) return true;
+            } else if (flags == MoveFlag::NORMAL) {
+                if (!m.is_capture() && !m.is_promo() && !m.is_double_push() && !m.is_en_passant() && !m.is_castle()) return true;
+            } else {
+                if (m.get_flags() == flags) return true;
+            }
+        }
+    }
+    return false;
 }
 
 // Test move generation in starting position
@@ -161,4 +171,87 @@ TEST(MoveGenTest, PseudoLegalMoveGenCamelCase) {
         }
     }
     EXPECT_TRUE(found_capture);
+}
+
+// Test pinned pieces constraint: pinned piece cannot move off the line of defense
+TEST(MoveGenTest, PinnedPiecesLegality) {
+    Board board;
+    // FEN: White King on e1, White Rook on e2, Black Rook on e8 (pinning the e2 rook)
+    const std::string pinned_fen = "4r3/8/8/8/8/8/4R3/4K3 w - - 0 1";
+    ASSERT_TRUE(board.loadFromFen(pinned_fen));
+
+    std::vector<Move> moves = generateLegalMoves(board);
+
+    // Rook on e2 moving to e3 or e8 (staying on e-file) is legal
+    EXPECT_TRUE(move_exists(moves, Square::E2, Square::E3, MoveFlag::NORMAL));
+    EXPECT_TRUE(move_exists(moves, Square::E2, Square::E8, MoveFlag::CAPTURE));
+
+    // Rook on e2 moving to d2 or f2 (leaving e-file) is illegal
+    EXPECT_FALSE(move_exists(moves, Square::E2, Square::D2, MoveFlag::NORMAL));
+    EXPECT_FALSE(move_exists(moves, Square::E2, Square::F2, MoveFlag::NORMAL));
+}
+
+// Test double check constraint: only King moves are legal
+TEST(MoveGenTest, DoubleCheckLegality) {
+    Board board;
+    // FEN: White King on e1, Black Queen on e2 (checking), Black Knight on c2 (checking)
+    const std::string double_check_fen = "8/8/8/8/8/8/2n1q3/4K3 w - - 0 1";
+    ASSERT_TRUE(board.loadFromFen(double_check_fen));
+
+    std::vector<Move> moves = generateLegalMoves(board);
+
+    // Only King moves must be generated. (e.g. King to d1, f1, or capturing e2)
+    for (const auto& m : moves) {
+        EXPECT_EQ(board.getPiece(m.getSourceSquare()), Piece::WhiteKing);
+    }
+    
+    // King capturing Queen on e2 is legal (since Knight on c2 doesn't guard e2)
+    EXPECT_TRUE(move_exists(moves, Square::E1, Square::E2, MoveFlag::CAPTURE));
+}
+
+// Test castling legality under check conditions
+TEST(MoveGenTest, CastlingLegalityConstraints) {
+    Board board;
+    
+    // 1. Cannot castle out of check
+    // FEN: White King on e1 under check from Black Rook on e2.
+    const std::string castle_check_fen = "4k3/8/8/8/8/8/4r3/R3K2R w KQ - 0 1";
+    ASSERT_TRUE(board.loadFromFen(castle_check_fen));
+    // Verify King is in check
+    ASSERT_TRUE(is_in_check(board, Color::White));
+    std::vector<Move> moves1 = generateLegalMoves(board);
+    EXPECT_FALSE(move_exists(moves1, Square::E1, Square::G1, MoveFlag::CASTLE_K));
+    EXPECT_FALSE(move_exists(moves1, Square::E1, Square::C1, MoveFlag::CASTLE_Q));
+
+    // 2. Cannot castle through check (f1 attacked)
+    // FEN: Black Rook on f3 attacks f1.
+    const std::string castle_through_fen = "4k3/8/8/8/8/5r2/8/R3K2R w KQ - 0 1";
+    ASSERT_TRUE(board.loadFromFen(castle_through_fen));
+    std::vector<Move> moves2 = generateLegalMoves(board);
+    // Kingside castling (O-O) passes through f1, so it is illegal
+    EXPECT_FALSE(move_exists(moves2, Square::E1, Square::G1, MoveFlag::CASTLE_K));
+    // Queenside castling (O-O-O) is still legal
+    EXPECT_TRUE(move_exists(moves2, Square::E1, Square::C1, MoveFlag::CASTLE_Q));
+
+    // 3. Cannot castle into check (g1 attacked)
+    // FEN: Black Rook on g3 attacks g1.
+    const std::string castle_into_fen = "4k3/8/8/8/8/6r1/8/R3K2R w KQ - 0 1";
+    ASSERT_TRUE(board.loadFromFen(castle_into_fen));
+    std::vector<Move> moves3 = generateLegalMoves(board);
+    EXPECT_FALSE(move_exists(moves3, Square::E1, Square::G1, MoveFlag::CASTLE_K));
+}
+
+// Test en-passant legality: en-passant capture cannot open a pin/check
+TEST(MoveGenTest, EnPassantPinLegality) {
+    Board board;
+    // FEN: White King on e1, White Pawn on e5, Black Pawn on d5.
+    // Black Rook on e8 pins the e-file. If White captures exd6 ep, the e-file opens up,
+    // exposing the King on e1 to check from the Rook on e8.
+    const std::string ep_pin_fen = "4r3/8/8/3pP3/8/8/8/4K3 w - d6 0 2";
+    ASSERT_TRUE(board.loadFromFen(ep_pin_fen));
+
+    std::vector<Move> moves = generateLegalMoves(board);
+
+    // En-passant capture exd6 is illegal because it leaves the King in check
+    EXPECT_FALSE(move_exists(moves, Square::E5, Square::D6, MoveFlag::EN_PASSANT));
 }

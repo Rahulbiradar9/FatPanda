@@ -287,7 +287,7 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
     return generatePseudoLegalMoves(board);
 }
 
-std::vector<Move> generate_legal_moves(Board& board) {
+std::vector<Move> generateLegalMoves(Board& board) {
     std::vector<Move> pseudo = generatePseudoLegalMoves(board);
     std::vector<Move> legal;
     legal.reserve(pseudo.size());
@@ -300,6 +300,10 @@ std::vector<Move> generate_legal_moves(Board& board) {
     }
 
     return legal;
+}
+
+std::vector<Move> generate_legal_moves(Board& board) {
+    return generateLegalMoves(board);
 }
 
 } // namespace ChessEngine

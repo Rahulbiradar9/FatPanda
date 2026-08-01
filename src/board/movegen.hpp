@@ -17,7 +17,10 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board);
 // Generate all pseudo-legal moves (ignoring checks) - Legacy compatibility
 std::vector<Move> generate_pseudo_legal_moves(const Board& board);
 
-// Generate all fully legal moves (ensuring own King is not left in check)
+// Generate all fully legal moves (ensuring own King is not left in check) - New camelCase
+std::vector<Move> generateLegalMoves(Board& board);
+
+// Generate all fully legal moves (ensuring own King is not left in check) - Legacy compatibility
 std::vector<Move> generate_legal_moves(Board& board);
 
 } // namespace ChessEngine
