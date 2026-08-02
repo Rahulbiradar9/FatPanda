@@ -16,7 +16,7 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 # Define the unit tests executable
-add_executable(ChessEngineTests
+add_executable(FatPandaTests
     dummy_test.cpp
     bitboard_test.cpp
     board_test.cpp
@@ -33,12 +33,12 @@ add_executable(ChessEngineTests
 )
 
 # Link tests with googletest (gtest_main provides main()) and our engine logic library
-target_link_libraries(ChessEngineTests
+target_link_libraries(FatPandaTests
     PRIVATE
         gtest_main
-        ChessEngineLib
+        FatPandaLib
 )
 
 # Enable CTest discovery for GTest
 include(GoogleTest)
-gtest_discover_tests(ChessEngineTests)
+gtest_discover_tests(FatPandaTests)

@@ -17,7 +17,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (run_demo) {
-        std::cout << "Chess Engine v" << ChessEngine::get_version_string() << " Initialized." << std::endl;
+        std::cout << "FatPanda v" << ChessEngine::get_version_string() << " Initialized." << std::endl;
 #if defined(__cpp_lib_three_way_comparison)
         std::cout << "C++20 standard is verified and active!" << std::endl;
 #else

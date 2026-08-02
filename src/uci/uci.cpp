@@ -203,7 +203,7 @@ void uci_loop() {
         ss >> command;
         
         if (command == "uci") {
-            std::cout << "id name ChessEngine v" << get_version_string() << "\n";
+            std::cout << "id name FatPanda v" << get_version_string() << "\n";
             std::cout << "id author Rahul Biradar\n";
             std::cout << "option name Hash type spin default 64 min 1 max 2048\n";
             std::cout << "uciok" << std::endl;

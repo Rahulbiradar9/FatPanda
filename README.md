@@ -1,11 +1,11 @@
 <div align="center">
-  <img width="240" height="240" alt="ChessEngine" src="logo.png" />
-  <h1>ChessEngine</h1>
+  <img width="240" height="240" alt="FatPanda" src="logo.png" />
+  <h1>FatPanda</h1>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 </div>
 
-ChessEngine is a clean, modular, and performance-oriented competitive chess engine built from scratch in C++20. It implements efficient bitboard representations, legal move generation, transposition tables with Zobrist hashing, and a highly tuned search-evaluation architecture.
+FatPanda is a clean, modular, and performance-oriented competitive chess engine built from scratch in C++20. It implements efficient bitboard representations, legal move generation, transposition tables with Zobrist hashing, and a highly tuned search-evaluation architecture.
 
 ## Features
 
@@ -35,13 +35,13 @@ Precompiled binaries will be available on the [GitHub Releases page](https://git
 
 ### Building from source
 
-To build ChessEngine from source, make sure you have:
+To build FatPanda from source, make sure you have:
 
 - A **C++20** compatible compiler (e.g., GCC 10+, Clang 10+, or MSVC 2019+)
 - **CMake 3.14+**
 - Build tools (Make, Ninja, MSBuild, etc.)
 
-Once installed, you can build ChessEngine using CMake:
+Once installed, you can build FatPanda using CMake:
 
 ```bash
 # 1. Configure the build
@@ -52,12 +52,12 @@ cmake --build build --config Release
 ```
 
 The compiled executable will be located in:
-- **Windows (MSVC)**: `.\build\src\Release\ChessEngine.exe`
-- **Linux / macOS / Windows (Ninja/Make)**: `./build/src/ChessEngine`
+- **Windows (MSVC)**: `.\build\src\Release\FatPanda.exe`
+- **Linux / macOS / Windows (Ninja/Make)**: `./build/src/FatPanda`
 
 ### Running unit tests
 
-ChessEngine includes a comprehensive test suite powered by GoogleTest. To execute all unit tests, run:
+FatPanda includes a comprehensive test suite powered by GoogleTest. To execute all unit tests, run:
 
 ```bash
 cd build
@@ -66,7 +66,7 @@ ctest -C Release --output-on-failure
 
 ### Usage
 
-ChessEngine is a backend chess engine communicating via the standard UCI protocol. It is designed to be used with UCI-compatible Graphical User Interfaces (GUIs), such as:
+FatPanda is a backend chess engine communicating via the standard UCI protocol. It is designed to be used with UCI-compatible Graphical User Interfaces (GUIs), such as:
 - [Cute Chess](https://github.com/cutechess/cutechess)
 - [En Croissant](https://encroissant.org)
 - [Nibbler](https://github.com/rooklift/nibbler)
@@ -78,12 +78,12 @@ Alternatively, you can interact with the engine directly through the command lin
 
 ```bash
 # Example running the demo mode
-./build/src/ChessEngine --demo
+./build/src/FatPanda --demo
 ```
 
 ### UCI options
 
-ChessEngine supports the following UCI options:
+FatPanda supports the following UCI options:
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -91,7 +91,7 @@ ChessEngine supports the following UCI options:
 
 ### Custom UCI commands
 
-Along with the standard UCI commands (like `position`, `go`, `stop`, `ucinewgame`), ChessEngine supports:
+Along with the standard UCI commands (like `position`, `go`, `stop`, `ucinewgame`), FatPanda supports:
 
 | Command | Description |
 | --- | --- |
