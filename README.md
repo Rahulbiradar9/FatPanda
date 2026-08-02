@@ -31,7 +31,7 @@ FatPanda is a clean, modular, and performance-oriented competitive chess engine 
 
 ### Precompiled binaries
 
-Precompiled binaries will be available on the [GitHub Releases page](https://github.com/Rahulbiradar9/Engine/releases) in future releases.
+Precompiled binaries will be available on the [GitHub Releases page](https://github.com/Rahulbiradar9/FatPanda/releases) in future releases.
 
 ### Building from source
 
