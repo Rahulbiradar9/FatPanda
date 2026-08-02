@@ -3,9 +3,18 @@
   <h1>FatPanda</h1>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![GitHub Release](https://img.shields.io/github/v/release/Rahulbiradar9/FatPanda?logo=github&color=097BBC)](https://github.com/Rahulbiradar9/FatPanda/releases/latest)
 </div>
 
 FatPanda is a clean, modular, and performance-oriented competitive chess engine built from scratch in C++20. It implements efficient bitboard representations, legal move generation, transposition tables with Zobrist hashing, and a highly tuned search-evaluation architecture.
+
+## Releases
+
+| Version | Description | Release Date |
+| --- | --- | --- |
+| [FatPanda v0.1.0][v0.1.0] | First stable release with Bitboard movegen, Alpha-Beta search, transposition tables, and classical evaluation. | Aug 2, 2026 |
+
+[v0.1.0]: https://github.com/Rahulbiradar9/FatPanda/releases/tag/v0.1.0
 
 ## Features
 
