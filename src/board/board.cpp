@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <string>
 #include "board/movegen.hpp"
+#include "hash/zobrist.hpp"
 
 namespace ChessEngine {
 
@@ -46,6 +47,7 @@ std::string square_to_string(Square sq) {
 } // namespace
 
 Board::Board() {
+    initialize_zobrist_keys();
     clear();
 }
 
@@ -65,6 +67,7 @@ void Board::clear() {
     en_passant_ = Square::None;
     halfmove_clock_ = 0;
     fullmove_number_ = 1;
+    hash_key_ = 0;
 }
 
 void Board::set_piece(Square sq, Piece p) {
@@ -78,6 +81,7 @@ void Board::set_piece(Square sq, Piece p) {
 
     // Remove the old piece if present
     if (old_piece != Piece::None) {
+        hash_key_ ^= piece_keys[static_cast<size_t>(old_piece)][sq_idx];
         size_t old_piece_idx = static_cast<size_t>(old_piece);
         clear_bit(pieces_[old_piece_idx], sq);
 
@@ -89,6 +93,7 @@ void Board::set_piece(Square sq, Piece p) {
 
     // Add the new piece if not Piece::None
     if (p != Piece::None) {
+        hash_key_ ^= piece_keys[static_cast<size_t>(p)][sq_idx];
         size_t new_piece_idx = static_cast<size_t>(p);
         set_bit(pieces_[new_piece_idx], sq);
 
@@ -100,6 +105,33 @@ void Board::set_piece(Square sq, Piece p) {
 
     // Update board array
     board_squares_[sq_idx] = p;
+}
+
+uint64_t Board::compute_hash_key() const {
+    uint64_t key = 0;
+
+    // Pieces
+    for (int sq = 0; sq < 64; ++sq) {
+        Piece p = get_piece(static_cast<Square>(sq));
+        if (p != Piece::None) {
+            key ^= piece_keys[static_cast<size_t>(p)][sq];
+        }
+    }
+
+    // Castling rights
+    key ^= castling_keys[castling_rights_];
+
+    // En passant square
+    if (en_passant_ != Square::None) {
+        key ^= en_passant_keys[static_cast<size_t>(en_passant_)];
+    }
+
+    // Side to move
+    if (side_to_move_ == Color::Black) {
+        key ^= side_key;
+    }
+
+    return key;
 }
 
 void Board::reset_to_start() {
@@ -141,6 +173,7 @@ void Board::reset_to_start() {
     en_passant_ = Square::None;
     halfmove_clock_ = 0;
     fullmove_number_ = 1;
+    hash_key_ = compute_hash_key();
 }
 
 void Board::print() const {
@@ -222,6 +255,13 @@ bool Board::makeMove(Move m, UndoState& undo) {
     undo.castlingRights = castling_rights_;
     undo.halfmoveClock = halfmove_clock_;
     undo.fullmoveNumber = fullmove_number_;
+    undo.hashKey = hash_key_;
+
+    // XOR out old ep and castling rights
+    if (en_passant_ != Square::None) {
+        hash_key_ ^= en_passant_keys[static_cast<size_t>(en_passant_)];
+    }
+    hash_key_ ^= castling_keys[castling_rights_];
 
     Square from = m.getSourceSquare();
     Square to = m.getDestinationSquare();
@@ -322,6 +362,13 @@ bool Board::makeMove(Move m, UndoState& undo) {
     // Swap side to move
     side_to_move_ = opponent;
 
+    // XOR in new ep, castling rights, and toggle side to move
+    if (en_passant_ != Square::None) {
+        hash_key_ ^= en_passant_keys[static_cast<size_t>(en_passant_)];
+    }
+    hash_key_ ^= castling_keys[castling_rights_];
+    hash_key_ ^= side_key;
+
     // Check legality: King must not be left in check
     if (is_in_check(*this, us)) {
         unmakeMove(m, undo);
@@ -388,6 +435,8 @@ void Board::unmakeMove(Move m, const UndoState& undo) {
             }
         }
     }
+
+    hash_key_ = undo.hashKey;
 }
 
 } // namespace ChessEngine

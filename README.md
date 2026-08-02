@@ -1,67 +1,107 @@
-# Chess Engine
+<div align="center">
+  <img width="240" height="240" alt="ChessEngine" src="logo.png" />
+  <h1>ChessEngine</h1>
 
-A clean, modular, and performance-oriented Chess Engine built from scratch in C++20.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+</div>
 
-## Project Structure
+ChessEngine is a clean, modular, and performance-oriented competitive chess engine built from scratch in C++20. It implements efficient bitboard representations, legal move generation, transposition tables with Zobrist hashing, and a highly tuned search-evaluation architecture.
 
-The project has a modular layout separating core chess logic, search, evaluation, hash tables, and communication protocols (UCI).
+## Features
 
-```text
-Chess-engine/
-├── CMakeLists.txt         # Main CMake build file
-├── README.md              # Documentation
-├── src/                   # Source files
-│   ├── main.cpp           # Program entry point
-│   ├── board/             # Board representation (Bitboards, state)
-│   ├── move/              # Move generation, encoding, and ordering
-│   ├── search/            # Search algorithms (Alpha-Beta, Iterative Deepening)
-│   ├── evaluation/        # Evaluation function
-│   ├── hash/              # Transposition tables & Zobrist hashing
-│   ├── uci/               # Universal Chess Interface implementation
-│   └── utils/             # Helper libraries and utilities
-└── tests/                 # Unit tests (powered by GoogleTest)
-```
+- **Board Representation**: Efficient Bitboard architecture with precalculated attack tables, custom FEN parsing, and board visualization.
+- **Search Techniques**:
+  - Negamax search with Alpha-Beta pruning
+  - Iterative Deepening
+  - Quiescence Search to avoid the horizon effect
+  - Transposition Tables (TT) for caching search results
+- **Move Ordering & Pruning**:
+  - MVV-LVA (Most Valuable Victim - Least Valuable Aggressor) ordering
+  - Killer Move heuristic
+  - History heuristic
+  - Principal Variation (PV) ordering
+- **Evaluation**: Custom classical evaluation function assessing:
+  - Material balance
+  - Piece-Square Tables (PST) for positional play
+  - Pawn structures (passed, isolated, doubled, and backward pawns)
+  - King safety and piece mobility
+- **Interface**: Full support for the Universal Chess Interface (UCI) protocol.
 
-## Requirements
+## Getting started
 
-* **C++20** compatible compiler (e.g., GCC 10+, Clang 10+, or MSVC 2019+)
-* **CMake 3.14+**
-* Cross-platform build tools (make, ninja, MSBuild, etc.)
+### Precompiled binaries
 
-## Building and Running
+Precompiled binaries will be available on the [GitHub Releases page](https://github.com/Rahulbiradar9/Engine/releases) in future releases.
 
-This project uses CMake to configure, build, and run tests.
+### Building from source
 
-### 1. Configure the build
-Generate the build system files in the `build` directory:
+To build ChessEngine from source, make sure you have:
+
+- A **C++20** compatible compiler (e.g., GCC 10+, Clang 10+, or MSVC 2019+)
+- **CMake 3.14+**
+- Build tools (Make, Ninja, MSBuild, etc.)
+
+Once installed, you can build ChessEngine using CMake:
+
 ```bash
+# 1. Configure the build
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-```
 
-### 2. Build the engine
-Compile the library, executable, and test suite:
-```bash
+# 2. Build the engine
 cmake --build build --config Release
 ```
 
-### 3. Run the engine
-Run the compiled executable:
-* **Windows (MSVC)**:
-  ```cmd
-  .\build\src\Release\ChessEngine.exe
-  ```
-* **Linux / macOS / Windows (Ninja/Make)**:
-  ```bash
-  ./build/src/ChessEngine
-  ```
+The compiled executable will be located in:
+- **Windows (MSVC)**: `.\build\src\Release\ChessEngine.exe`
+- **Linux / macOS / Windows (Ninja/Make)**: `./build/src/ChessEngine`
 
-### 4. Run tests
-Execute the unit tests using `ctest`:
+### Running unit tests
+
+ChessEngine includes a comprehensive test suite powered by GoogleTest. To execute all unit tests, run:
+
 ```bash
 cd build
 ctest -C Release --output-on-failure
 ```
 
+### Usage
+
+ChessEngine is a backend chess engine communicating via the standard UCI protocol. It is designed to be used with UCI-compatible Graphical User Interfaces (GUIs), such as:
+- [Cute Chess](https://github.com/cutechess/cutechess)
+- [En Croissant](https://encroissant.org)
+- [Nibbler](https://github.com/rooklift/nibbler)
+
+Alternatively, you can interact with the engine directly through the command line or run its demo verification mode.
+
+#### Command-line arguments
+- `demo` / `--demo`: Run a demo verification checking the move representation, move generator, static evaluator, FEN parser, and starting board layout.
+
+```bash
+# Example running the demo mode
+./build/src/ChessEngine --demo
+```
+
+### UCI options
+
+ChessEngine supports the following UCI options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| Hash | 64 | Size of the transposition table in MB [1–2048] |
+
+### Custom UCI commands
+
+Along with the standard UCI commands (like `position`, `go`, `stop`, `ucinewgame`), ChessEngine supports:
+
+| Command | Description |
+| --- | --- |
+| `print` or `d` | Print the current board position and active FEN in a human-readable format |
+
+## Acknowledgements
+
+- The [Chess Programming Wiki](https://www.chessprogramming.org/Main_Page) for its invaluable resources on chess programming concepts.
+- Open-source engines like [Stockfish](https://github.com/official-stockfish/Stockfish) and [Reckless](https://github.com/codedeliveryservice/Reckless) for inspiring design patterns and clean architectures.
+
 ## License
 
-This project is open-source and available under the MIT License.
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).

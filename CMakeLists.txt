@@ -21,6 +21,9 @@ add_library(ChessEngineLib STATIC
     src/board/perft.cpp
     src/evaluation/evaluation.cpp
     src/search/search.cpp
+    src/hash/zobrist.cpp
+    src/hash/tt.cpp
+    src/uci/uci.cpp
 )
 
 # Set include directories

@@ -116,6 +116,7 @@ bool Board::load_from_fen(std::string_view fen) {
         return false;
     }
 
+    hash_key_ = compute_hash_key();
     return true;
 }
 

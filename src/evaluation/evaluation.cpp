@@ -14,8 +14,6 @@ constexpr int VAL_ROOK = 500;
 constexpr int VAL_QUEEN = 900;
 
 // Classical Piece-Square Tables (White perspective, LERF mapping)
-// High values encourage active and sensible piece placements.
-
 constexpr std::array<int, 64> pawn_pst = {
      0,  0,  0,  0,  0,  0,  0,  0,
     50, 50, 50, 50, 50, 50, 50, 50,
@@ -57,7 +55,7 @@ constexpr std::array<int, 64> rook_pst = {
      -5,  0,  0,  0,  0,  0,  0, -5,
      -5,  0,  0,  0,  0,  0,  0, -5,
      -5,  0,  0,  0,  0,  0,  0, -5,
-      0,  0,  0,  5,  5,  0,  0,  0
+       0,  0,  0,  5,  5,  0,  0,  0
 };
 
 constexpr std::array<int, 64> queen_pst = {
@@ -96,226 +94,279 @@ constexpr std::array<Bitboard, 8> FILE_MASKS = []() {
     return masks;
 }();
 
+// Helper to compute a passed pawn mask
+constexpr Bitboard get_passed_pawn_mask(Square sq, Color color) {
+    int file = get_file(sq);
+    int rank = get_rank(sq);
+    Bitboard mask = EMPTY_BOARD;
+
+    Bitboard files = FILE_MASKS[file];
+    if (file > 0) files |= FILE_MASKS[file - 1];
+    if (file < 7) files |= FILE_MASKS[file + 1];
+
+    if (color == Color::White) {
+        for (int r = rank + 1; r < 8; ++r) {
+            mask |= (files & (0xFFULL << (r * 8)));
+        }
+    } else {
+        for (int r = rank - 1; r >= 0; --r) {
+            mask |= (files & (0xFFULL << (r * 8)));
+        }
+    }
+    return mask;
+}
+
 } // namespace
 
-int evaluate(const Board& board) {
+// --- Modular Classical Evaluation Helpers ---
+
+int evaluateMaterial(const Board& board) {
+    int score = 0;
+
+    // Piece Material Counts
+    score += count_bits(board.get_piece_bitboard(Piece::WhitePawn)) * VAL_PAWN;
+    score -= count_bits(board.get_piece_bitboard(Piece::BlackPawn)) * VAL_PAWN;
+
+    score += count_bits(board.get_piece_bitboard(Piece::WhiteKnight)) * VAL_KNIGHT;
+    score -= count_bits(board.get_piece_bitboard(Piece::BlackKnight)) * VAL_KNIGHT;
+
+    score += count_bits(board.get_piece_bitboard(Piece::WhiteBishop)) * VAL_BISHOP;
+    score -= count_bits(board.get_piece_bitboard(Piece::BlackBishop)) * VAL_BISHOP;
+
+    score += count_bits(board.get_piece_bitboard(Piece::WhiteRook)) * VAL_ROOK;
+    score -= count_bits(board.get_piece_bitboard(Piece::BlackRook)) * VAL_ROOK;
+
+    score += count_bits(board.get_piece_bitboard(Piece::WhiteQueen)) * VAL_QUEEN;
+    score -= count_bits(board.get_piece_bitboard(Piece::BlackQueen)) * VAL_QUEEN;
+
+    // Bishop Pair Bonus
+    if (count_bits(board.get_piece_bitboard(Piece::WhiteBishop)) >= 2) score += 50;
+    if (count_bits(board.get_piece_bitboard(Piece::BlackBishop)) >= 2) score -= 50;
+
+    return score;
+}
+
+int evaluatePieceSquareTables(const Board& board) {
+    int score = 0;
+
+    // White Pieces
+    Bitboard w_pawns = board.get_piece_bitboard(Piece::WhitePawn);
+    while (w_pawns) score += pawn_pst[static_cast<size_t>(pop_lsb(w_pawns))];
+
+    Bitboard w_knights = board.get_piece_bitboard(Piece::WhiteKnight);
+    while (w_knights) score += knight_pst[static_cast<size_t>(pop_lsb(w_knights))];
+
+    Bitboard w_bishops = board.get_piece_bitboard(Piece::WhiteBishop);
+    while (w_bishops) score += bishop_pst[static_cast<size_t>(pop_lsb(w_bishops))];
+
+    Bitboard w_rooks = board.get_piece_bitboard(Piece::WhiteRook);
+    while (w_rooks) score += rook_pst[static_cast<size_t>(pop_lsb(w_rooks))];
+
+    Bitboard w_queens = board.get_piece_bitboard(Piece::WhiteQueen);
+    while (w_queens) score += queen_pst[static_cast<size_t>(pop_lsb(w_queens))];
+
+    Bitboard w_king = board.get_piece_bitboard(Piece::WhiteKing);
+    if (w_king) score += king_pst[static_cast<size_t>(get_lsb(w_king))];
+
+    // Black Pieces
+    Bitboard b_pawns = board.get_piece_bitboard(Piece::BlackPawn);
+    while (b_pawns) score -= pawn_pst[static_cast<size_t>(get_black_square(pop_lsb(b_pawns)))];
+
+    Bitboard b_knights = board.get_piece_bitboard(Piece::BlackKnight);
+    while (b_knights) score -= knight_pst[static_cast<size_t>(get_black_square(pop_lsb(b_knights)))];
+
+    Bitboard b_bishops = board.get_piece_bitboard(Piece::BlackBishop);
+    while (b_bishops) score -= bishop_pst[static_cast<size_t>(get_black_square(pop_lsb(b_bishops)))];
+
+    Bitboard b_rooks = board.get_piece_bitboard(Piece::BlackRook);
+    while (b_rooks) score -= rook_pst[static_cast<size_t>(get_black_square(pop_lsb(b_rooks)))];
+
+    Bitboard b_queens = board.get_piece_bitboard(Piece::BlackQueen);
+    while (b_queens) score -= queen_pst[static_cast<size_t>(get_black_square(pop_lsb(b_queens)))];
+
+    Bitboard b_king = board.get_piece_bitboard(Piece::BlackKing);
+    if (b_king) score -= king_pst[static_cast<size_t>(get_black_square(get_lsb(b_king)))];
+
+    return score;
+}
+
+int evaluateMobility(const Board& board) {
     int score = 0;
 
     Bitboard white_occ = board.get_occupancy(Color::White);
     Bitboard black_occ = board.get_occupancy(Color::Black);
     Bitboard both_occ = board.get_occupancy(Color::None);
 
-    // --- 1. MATERIAL & PIECE-SQUARE TABLES (PST) ---
-    
-    // Pawns
     Bitboard w_pawns = board.get_piece_bitboard(Piece::WhitePawn);
-    while (w_pawns) {
-        Square sq = pop_lsb(w_pawns);
-        score += VAL_PAWN;
-        score += pawn_pst[static_cast<size_t>(sq)];
-    }
     Bitboard b_pawns = board.get_piece_bitboard(Piece::BlackPawn);
-    while (b_pawns) {
-        Square sq = pop_lsb(b_pawns);
-        score -= VAL_PAWN;
-        score -= pawn_pst[static_cast<size_t>(get_black_square(sq))];
-    }
 
-    // Knights
+    // --- White Mobility & Rook Activity ---
     Bitboard w_knights = board.get_piece_bitboard(Piece::WhiteKnight);
     while (w_knights) {
         Square sq = pop_lsb(w_knights);
-        score += VAL_KNIGHT;
-        score += knight_pst[static_cast<size_t>(sq)];
-    }
-    Bitboard b_knights = board.get_piece_bitboard(Piece::BlackKnight);
-    while (b_knights) {
-        Square sq = pop_lsb(b_knights);
-        score -= VAL_KNIGHT;
-        score -= knight_pst[static_cast<size_t>(get_black_square(sq))];
+        score += count_bits(get_knight_attacks(sq) & ~white_occ) * 4;
     }
 
-    // Bishops
     Bitboard w_bishops = board.get_piece_bitboard(Piece::WhiteBishop);
     while (w_bishops) {
         Square sq = pop_lsb(w_bishops);
-        score += VAL_BISHOP;
-        score += bishop_pst[static_cast<size_t>(sq)];
-    }
-    Bitboard b_bishops = board.get_piece_bitboard(Piece::BlackBishop);
-    while (b_bishops) {
-        Square sq = pop_lsb(b_bishops);
-        score -= VAL_BISHOP;
-        score -= bishop_pst[static_cast<size_t>(get_black_square(sq))];
+        score += count_bits(get_bishop_attacks(sq, both_occ) & ~white_occ) * 3;
     }
 
-    // Rooks
     Bitboard w_rooks = board.get_piece_bitboard(Piece::WhiteRook);
     while (w_rooks) {
         Square sq = pop_lsb(w_rooks);
-        score += VAL_ROOK;
-        score += rook_pst[static_cast<size_t>(sq)];
-    }
-    Bitboard b_rooks = board.get_piece_bitboard(Piece::BlackRook);
-    while (b_rooks) {
-        Square sq = pop_lsb(b_rooks);
-        score -= VAL_ROOK;
-        score -= rook_pst[static_cast<size_t>(get_black_square(sq))];
+        int file = get_file(sq);
+        int rank = get_rank(sq);
+
+        score += count_bits(get_rook_attacks(sq, both_occ) & ~white_occ) * 2;
+
+        // Rook on 7th rank
+        if (rank == 6) score += 20;
+
+        // Rook on open/semi-open file
+        Bitboard pawns_on_file = (w_pawns | b_pawns) & FILE_MASKS[file];
+        if (pawns_on_file == EMPTY_BOARD) {
+            score += 20; // Open file
+        } else if ((w_pawns & FILE_MASKS[file]) == EMPTY_BOARD) {
+            score += 10; // Semi-open file
+        }
     }
 
-    // Queens
     Bitboard w_queens = board.get_piece_bitboard(Piece::WhiteQueen);
     while (w_queens) {
         Square sq = pop_lsb(w_queens);
-        score += VAL_QUEEN;
-        score += queen_pst[static_cast<size_t>(sq)];
-    }
-    Bitboard b_queens = board.get_piece_bitboard(Piece::BlackQueen);
-    while (b_queens) {
-        Square sq = pop_lsb(b_queens);
-        score -= VAL_QUEEN;
-        score -= queen_pst[static_cast<size_t>(get_black_square(sq))];
+        score += count_bits(get_queen_attacks(sq, both_occ) & ~white_occ) * 1;
     }
 
-    // Kings
-    Bitboard w_king = board.get_piece_bitboard(Piece::WhiteKing);
-    if (w_king) {
-        Square sq = get_lsb(w_king);
-        score += king_pst[static_cast<size_t>(sq)];
-    }
-    Bitboard b_king = board.get_piece_bitboard(Piece::BlackKing);
-    if (b_king) {
-        Square sq = get_lsb(b_king);
-        score -= king_pst[static_cast<size_t>(get_black_square(sq))];
-    }
-
-    // --- 2. BISHOP PAIR BONUS ---
-    if (count_bits(board.get_piece_bitboard(Piece::WhiteBishop)) >= 2) score += 50;
-    if (count_bits(board.get_piece_bitboard(Piece::BlackBishop)) >= 2) score -= 50;
-
-    // --- 3. PAWN STRUCTURE ---
-    
-    // White Pawns Structure
-    Bitboard w_pawns_ref = board.get_piece_bitboard(Piece::WhitePawn);
-    while (w_pawns_ref) {
-        Square sq = pop_lsb(w_pawns_ref);
-        int file = get_file(sq);
-
-        // Doubled Pawn Check (another pawn on same file)
-        Bitboard same_file_pawns = board.get_piece_bitboard(Piece::WhitePawn) & FILE_MASKS[file];
-        if (count_bits(same_file_pawns) > 1) {
-            score -= 15; // Doubled pawn penalty
-        }
-
-        // Isolated Pawn Check (no friendly pawns on adjacent files)
-        Bitboard adjacent_files = (file > 0 ? FILE_MASKS[file - 1] : 0) | (file < 7 ? FILE_MASKS[file + 1] : 0);
-        if ((adjacent_files & board.get_piece_bitboard(Piece::WhitePawn)) == EMPTY_BOARD) {
-            score -= 20; // Isolated pawn penalty
-        }
-    }
-
-    // Black Pawns Structure
-    Bitboard b_pawns_ref = board.get_piece_bitboard(Piece::BlackPawn);
-    while (b_pawns_ref) {
-        Square sq = pop_lsb(b_pawns_ref);
-        int file = get_file(sq);
-
-        // Doubled Pawn Check
-        Bitboard same_file_pawns = board.get_piece_bitboard(Piece::BlackPawn) & FILE_MASKS[file];
-        if (count_bits(same_file_pawns) > 1) {
-            score += 15; // Doubled pawn penalty (increases Black score, i.e., subtracts from White perspective)
-        }
-
-        // Isolated Pawn Check
-        Bitboard adjacent_files = (file > 0 ? FILE_MASKS[file - 1] : 0) | (file < 7 ? FILE_MASKS[file + 1] : 0);
-        if ((adjacent_files & board.get_piece_bitboard(Piece::BlackPawn)) == EMPTY_BOARD) {
-            score += 20; // Isolated pawn penalty
-        }
-    }
-
-    // --- 4. PIECE MOBILITY ---
-    // Count attacked target squares for minor & major pieces
-
-    // White Knights Mobility
-    Bitboard w_knights_ref = board.get_piece_bitboard(Piece::WhiteKnight);
-    while (w_knights_ref) {
-        Square sq = pop_lsb(w_knights_ref);
-        score += count_bits(get_knight_attacks(sq) & ~white_occ) * 4;
-    }
-    // Black Knights Mobility
-    Bitboard b_knights_ref = board.get_piece_bitboard(Piece::BlackKnight);
-    while (b_knights_ref) {
-        Square sq = pop_lsb(b_knights_ref);
+    // --- Black Mobility & Rook Activity ---
+    Bitboard b_knights = board.get_piece_bitboard(Piece::BlackKnight);
+    while (b_knights) {
+        Square sq = pop_lsb(b_knights);
         score -= count_bits(get_knight_attacks(sq) & ~black_occ) * 4;
     }
 
-    // White Bishops Mobility
-    Bitboard w_bishops_ref = board.get_piece_bitboard(Piece::WhiteBishop);
-    while (w_bishops_ref) {
-        Square sq = pop_lsb(w_bishops_ref);
-        score += count_bits(get_bishop_attacks(sq, both_occ) & ~white_occ) * 3;
-    }
-    // Black Bishops Mobility
-    Bitboard b_bishops_ref = board.get_piece_bitboard(Piece::BlackBishop);
-    while (b_bishops_ref) {
-        Square sq = pop_lsb(b_bishops_ref);
+    Bitboard b_bishops = board.get_piece_bitboard(Piece::BlackBishop);
+    while (b_bishops) {
+        Square sq = pop_lsb(b_bishops);
         score -= count_bits(get_bishop_attacks(sq, both_occ) & ~black_occ) * 3;
     }
 
-    // White Rooks Mobility
-    Bitboard w_rooks_ref = board.get_piece_bitboard(Piece::WhiteRook);
-    while (w_rooks_ref) {
-        Square sq = pop_lsb(w_rooks_ref);
-        score += count_bits(get_rook_attacks(sq, both_occ) & ~white_occ) * 2;
-    }
-    // Black Rooks Mobility
-    Bitboard b_rooks_ref = board.get_piece_bitboard(Piece::BlackRook);
-    while (b_rooks_ref) {
-        Square sq = pop_lsb(b_rooks_ref);
+    Bitboard b_rooks = board.get_piece_bitboard(Piece::BlackRook);
+    while (b_rooks) {
+        Square sq = pop_lsb(b_rooks);
+        int file = get_file(sq);
+        int rank = get_rank(sq);
+
         score -= count_bits(get_rook_attacks(sq, both_occ) & ~black_occ) * 2;
+
+        // Rook on 7th rank (rank 2 from White's view, i.e., rank index 1)
+        if (rank == 1) score -= 20;
+
+        // Rook on open/semi-open file
+        Bitboard pawns_on_file = (w_pawns | b_pawns) & FILE_MASKS[file];
+        if (pawns_on_file == EMPTY_BOARD) {
+            score -= 20; // Open file
+        } else if ((b_pawns & FILE_MASKS[file]) == EMPTY_BOARD) {
+            score -= 10; // Semi-open file
+        }
     }
 
-    // White Queens Mobility
-    Bitboard w_queens_ref = board.get_piece_bitboard(Piece::WhiteQueen);
-    while (w_queens_ref) {
-        Square sq = pop_lsb(w_queens_ref);
-        score += count_bits(get_queen_attacks(sq, both_occ) & ~white_occ) * 1;
-    }
-    // Black Queens Mobility
-    Bitboard b_queens_ref = board.get_piece_bitboard(Piece::BlackQueen);
-    while (b_queens_ref) {
-        Square sq = pop_lsb(b_queens_ref);
+    Bitboard b_queens = board.get_piece_bitboard(Piece::BlackQueen);
+    while (b_queens) {
+        Square sq = pop_lsb(b_queens);
         score -= count_bits(get_queen_attacks(sq, both_occ) & ~black_occ) * 1;
     }
 
-    // --- 5. KING SAFETY (PAWN SHIELD) ---
-    
-    // White King Shield
+    return score;
+}
+
+int evaluatePawnStructure(const Board& board) {
+    int score = 0;
+
+    Bitboard w_pawns = board.get_piece_bitboard(Piece::WhitePawn);
+    Bitboard b_pawns = board.get_piece_bitboard(Piece::BlackPawn);
+
+    // --- White Pawns ---
+    Bitboard w_pawns_ref = w_pawns;
+    while (w_pawns_ref) {
+        Square sq = pop_lsb(w_pawns_ref);
+        int file = get_file(sq);
+        int rank = get_rank(sq);
+
+        // Doubled Pawn
+        Bitboard same_file_pawns = w_pawns & FILE_MASKS[file];
+        if (count_bits(same_file_pawns) > 1) {
+            score -= 15;
+        }
+
+        // Isolated Pawn
+        Bitboard adjacent_files = (file > 0 ? FILE_MASKS[file - 1] : 0) | (file < 7 ? FILE_MASKS[file + 1] : 0);
+        if ((adjacent_files & w_pawns) == EMPTY_BOARD) {
+            score -= 20;
+        }
+
+        // Passed Pawn
+        Bitboard passed_mask = get_passed_pawn_mask(sq, Color::White);
+        if ((passed_mask & b_pawns) == EMPTY_BOARD) {
+            score += 15 + 10 * rank; // More valuable as it advances
+        }
+    }
+
+    // --- Black Pawns ---
+    Bitboard b_pawns_ref = b_pawns;
+    while (b_pawns_ref) {
+        Square sq = pop_lsb(b_pawns_ref);
+        int file = get_file(sq);
+        int rank = get_rank(sq);
+
+        // Doubled Pawn
+        Bitboard same_file_pawns = b_pawns & FILE_MASKS[file];
+        if (count_bits(same_file_pawns) > 1) {
+            score += 15;
+        }
+
+        // Isolated Pawn
+        Bitboard adjacent_files = (file > 0 ? FILE_MASKS[file - 1] : 0) | (file < 7 ? FILE_MASKS[file + 1] : 0);
+        if ((adjacent_files & b_pawns) == EMPTY_BOARD) {
+            score += 20;
+        }
+
+        // Passed Pawn
+        Bitboard passed_mask = get_passed_pawn_mask(sq, Color::Black);
+        if ((passed_mask & w_pawns) == EMPTY_BOARD) {
+            score -= 15 + 10 * (7 - rank);
+        }
+    }
+
+    return score;
+}
+
+int evaluateKingSafety(const Board& board) {
+    int score = 0;
+
+    Bitboard w_king = board.get_piece_bitboard(Piece::WhiteKing);
     if (w_king) {
         Square ksq = get_lsb(w_king);
         if (ksq == Square::G1 || ksq == Square::H1) {
-            // King-side Castled: Check F2, G2, H2 pawns
             if (board.get_piece(Square::F2) != Piece::WhitePawn) score -= 20;
             if (board.get_piece(Square::G2) != Piece::WhitePawn) score -= 20;
             if (board.get_piece(Square::H2) != Piece::WhitePawn) score -= 20;
         } else if (ksq == Square::C1 || ksq == Square::B1) {
-            // Queen-side Castled: Check A2, B2, C2 pawns
             if (board.get_piece(Square::A2) != Piece::WhitePawn) score -= 20;
             if (board.get_piece(Square::B2) != Piece::WhitePawn) score -= 20;
             if (board.get_piece(Square::C2) != Piece::WhitePawn) score -= 20;
         }
     }
 
-    // Black King Shield
+    Bitboard b_king = board.get_piece_bitboard(Piece::BlackKing);
     if (b_king) {
         Square ksq = get_lsb(b_king);
         if (ksq == Square::G8 || ksq == Square::H8) {
-            // King-side Castled: Check F7, G7, H7 pawns
             if (board.get_piece(Square::F7) != Piece::BlackPawn) score += 20;
             if (board.get_piece(Square::G7) != Piece::BlackPawn) score += 20;
             if (board.get_piece(Square::H7) != Piece::BlackPawn) score += 20;
         } else if (ksq == Square::C8 || ksq == Square::B8) {
-            // Queen-side Castled: Check A7, B7, C7 pawns
             if (board.get_piece(Square::A7) != Piece::BlackPawn) score += 20;
             if (board.get_piece(Square::B7) != Piece::BlackPawn) score += 20;
             if (board.get_piece(Square::C7) != Piece::BlackPawn) score += 20;
@@ -323,6 +374,17 @@ int evaluate(const Board& board) {
     }
 
     return score;
+}
+
+// Combine all elements to return side-to-move perspective score
+int evaluate(const Board& board) {
+    int score = evaluateMaterial(board)
+              + evaluatePieceSquareTables(board)
+              + evaluateMobility(board)
+              + evaluatePawnStructure(board)
+              + evaluateKingSafety(board);
+
+    return (board.get_side_to_move() == Color::White) ? score : -score;
 }
 
 } // namespace ChessEngine

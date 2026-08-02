@@ -26,6 +26,7 @@ struct UndoState {
     int halfmoveClock;
     int fullmoveNumber;
     Piece capturedPiece;
+    uint64_t hashKey;
 };
 
 class Board {
@@ -77,6 +78,9 @@ public:
     inline int get_fullmove_number() const { return fullmove_number_; }
     inline void set_fullmove_number(int num) { fullmove_number_ = num; }
 
+    inline uint64_t get_hash_key() const { return hash_key_; }
+    uint64_t compute_hash_key() const;
+
     // Print ASCII representation of the board to stdout for debugging
     void print() const;
 
@@ -117,6 +121,7 @@ private:
     Square en_passant_;
     int halfmove_clock_;
     int fullmove_number_;
+    uint64_t hash_key_;
 };
 
 } // namespace ChessEngine

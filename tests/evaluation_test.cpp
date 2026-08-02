@@ -6,13 +6,13 @@
 
 using namespace ChessEngine;
 
-// Helper to evaluate with checkmate/stalemate detection
+// Helper to evaluate with checkmate/stalemate detection (returns score from side-to-move's perspective)
 int get_game_state_score(Board& board) {
     auto moves = generate_legal_moves(board);
     if (moves.empty()) {
         if (is_in_check(board, board.get_side_to_move())) {
-            // Checkmate! If White is in checkmate, Black wins (-30000). If Black is in checkmate, White wins (+30000).
-            return (board.get_side_to_move() == Color::White) ? -30000 : 30000;
+            // Checkmate! For side-to-move, checkmate is a loss (-30000)
+            return -30000;
         } else {
             // Stalemate (draw)
             return 0;
@@ -74,8 +74,6 @@ TEST(EvaluationTest, KingSafetyPawnShield) {
     int unsafe_score = evaluate(board_unsafe);
 
     // Unsafe board should evaluate lower due to king safety penalties
-    // Material is different by 2 pawns (200 cp), king safety adds -40 cp penalty.
-    // Total difference should exceed just the material difference.
     EXPECT_GT(safe_score, unsafe_score);
 }
 
@@ -84,14 +82,12 @@ TEST(EvaluationTest, CheckmatePositionScoring) {
     Board board;
 
     // Scholar's Mate position (Black is checkmated)
-    // Black King is on E8. White Queen on F7, White Bishop on C4.
-    // Black has 0 legal moves and is in check.
     std::string mate_fen = "r1bqkbnr/pppp1Qpp/2n5/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4";
     EXPECT_TRUE(board.load_from_fen(mate_fen));
     EXPECT_TRUE(is_in_check(board, Color::Black));
 
     int score = get_game_state_score(board);
-    EXPECT_EQ(score, 30000); // White wins (+30000)
+    EXPECT_EQ(score, -30000); // Black is to move and checkmated: loss (-30000)
 
     // Reverse checkmate (White is checkmated, Fool's mate)
     std::string fools_mate_fen = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 0 3";
@@ -99,7 +95,7 @@ TEST(EvaluationTest, CheckmatePositionScoring) {
     EXPECT_TRUE(is_in_check(board, Color::White));
 
     score = get_game_state_score(board);
-    EXPECT_EQ(score, -30000); // Black wins (-30000)
+    EXPECT_EQ(score, -30000); // White is to move and checkmated: loss (-30000)
 }
 
 // Test Stalemate position detection and scoring
@@ -107,11 +103,89 @@ TEST(EvaluationTest, StalematePositionScoring) {
     Board board;
 
     // Classic stalemate position (Black to move, Black King on H8, White Queen on G6, White King on F7)
-    // Black King has no legal moves but is NOT in check.
     std::string stalemate_fen = "7k/5K2/6Q1/8/8/8/8/8 b - - 0 1";
     EXPECT_TRUE(board.load_from_fen(stalemate_fen));
     EXPECT_FALSE(is_in_check(board, Color::Black));
 
     int score = get_game_state_score(board);
     EXPECT_EQ(score, 0); // Draw (0 score)
+}
+
+// Test Bishop Pair Bonus
+TEST(EvaluationTest, BishopPairBonus) {
+    Board board_pair;
+    Board board_single;
+
+    // Board with two bishops vs single bishop
+    EXPECT_TRUE(board_pair.load_from_fen("k7/8/8/8/8/8/8/2B1B2K w - - 0 1"));
+    EXPECT_TRUE(board_single.load_from_fen("k7/8/8/8/8/8/8/2B4K w - - 0 1"));
+
+    // Material difference is 1 Bishop (330), but with bishop pair bonus the difference should be 380
+    int score_pair = evaluateMaterial(board_pair);
+    int score_single = evaluateMaterial(board_single);
+    EXPECT_EQ(score_pair - score_single, 380);
+}
+
+// Test Doubled Pawn Penalty
+TEST(EvaluationTest, DoubledPawnPenalty) {
+    Board board_normal;
+    Board board_doubled;
+
+    // White pawns connected vs doubled on A file
+    EXPECT_TRUE(board_normal.load_from_fen("k7/8/8/8/8/8/P1P5/K7 w - - 0 1"));
+    EXPECT_TRUE(board_doubled.load_from_fen("k7/8/8/8/8/P7/P7/K7 w - - 0 1"));
+
+    int normal_pawn_score = evaluatePawnStructure(board_normal);
+    int doubled_pawn_score = evaluatePawnStructure(board_doubled);
+
+    // Doubled pawns should be penalized
+    EXPECT_GT(normal_pawn_score, doubled_pawn_score);
+}
+
+// Test Isolated Pawn Penalty
+TEST(EvaluationTest, IsolatedPawnPenalty) {
+    Board board_connected;
+    Board board_isolated;
+
+    // White pawns connected vs isolated
+    EXPECT_TRUE(board_connected.load_from_fen("k7/8/8/8/8/8/PP6/K7 w - - 0 1"));
+    EXPECT_TRUE(board_isolated.load_from_fen("k7/8/8/8/8/8/P1P5/K7 w - - 0 1"));
+
+    int connected_pawn_score = evaluatePawnStructure(board_connected);
+    int isolated_pawn_score = evaluatePawnStructure(board_isolated);
+
+    // Isolated pawns should be penalized
+    EXPECT_GT(connected_pawn_score, isolated_pawn_score);
+}
+
+// Test Passed Pawn Bonus
+TEST(EvaluationTest, PassedPawnBonus) {
+    Board board_passed;
+    Board board_blocked;
+
+    // White passed pawn vs blocked pawn
+    EXPECT_TRUE(board_passed.load_from_fen("k7/8/8/3P4/8/8/8/K7 w - - 0 1"));
+    EXPECT_TRUE(board_blocked.load_from_fen("k7/8/3p4/3P4/8/8/8/K7 w - - 0 1"));
+
+    int passed_score = evaluatePawnStructure(board_passed);
+    int blocked_score = evaluatePawnStructure(board_blocked);
+
+    // Passed pawn should receive a significant bonus
+    EXPECT_GT(passed_score, blocked_score);
+}
+
+// Test Rook Activity (Open File and 7th Rank)
+TEST(EvaluationTest, RookActivity) {
+    Board board_active;
+    Board board_inactive;
+
+    // White Rook on open file & 7th rank vs Rook on blocked file/closed rank
+    EXPECT_TRUE(board_active.load_from_fen("k7/r1R5/8/8/8/8/8/K7 w - - 0 1"));
+    EXPECT_TRUE(board_inactive.load_from_fen("k7/r7/8/8/8/8/R7/K7 w - - 0 1"));
+
+    int active_mobility = evaluateMobility(board_active);
+    int inactive_mobility = evaluateMobility(board_inactive);
+
+    // Active rook should get open file and 7th rank bonuses
+    EXPECT_GT(active_mobility, inactive_mobility);
 }

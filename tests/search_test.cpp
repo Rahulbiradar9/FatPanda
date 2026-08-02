@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "board/board.hpp"
 #include "search/search.hpp"
+#include "hash/tt.hpp"
 
 using namespace ChessEngine;
 
@@ -66,4 +67,50 @@ TEST(SearchTest, Handles50MoveDraw) {
 
     SearchResult result = search(board, 1);
     EXPECT_EQ(result.score, 0);
+}
+
+// Test that search returns nodes, depth, and a non-empty PV line
+TEST(SearchTest, ReturnsNodesDepthAndPv) {
+    Board board;
+    board.reset_to_start();
+
+    SearchResult result = search(board, 2);
+    EXPECT_GT(result.nodes_searched, 0);
+    EXPECT_EQ(result.search_depth, 2);
+    EXPECT_FALSE(result.pv.empty());
+    
+    // The first move in the PV should be the best move
+    EXPECT_EQ(result.pv[0], result.best_move);
+}
+
+// Test that verifies move ordering is efficient by comparing search nodes
+TEST(SearchTest, MoveOrderingBenchmark) {
+    Board board;
+    // Kiwipete position (rich tactical position, great for testing move ordering cutoffs)
+    ASSERT_TRUE(board.load_from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"));
+
+    g_tt.clear();
+    SearchResult result = search(board, 4);
+    
+    // The search at depth 4 in Kiwipete should be extremely fast and visit relatively few nodes
+    // thanks to Alpha-Beta, TT, MVV-LVA, Killer moves, and History heuristics.
+    std::cout << "[Benchmark] Kiwipete depth 4 nodes: " << result.nodes_searched << std::endl;
+    EXPECT_GT(result.nodes_searched, 0);
+    EXPECT_LT(result.nodes_searched, 150000); // Usually < 80,000 nodes with good move ordering
+}
+
+// Test that search respects g_stop_search flag and returns early
+TEST(SearchTest, SearchRespectsStopFlag) {
+    Board board;
+    board.reset_to_start();
+
+    // Start search and set stop flag immediately
+    g_stop_search.store(true);
+    SearchResult result = search(board, 10);
+    
+    // It should exit immediately and return early
+    EXPECT_LT(result.nodes_searched, 5000);
+    
+    // Reset stop search flag
+    g_stop_search.store(false);
 }
