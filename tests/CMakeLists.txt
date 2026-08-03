@@ -30,6 +30,13 @@ add_executable(FatPandaTests
     attacks_test.cpp
     perft_test.cpp
     hash_test.cpp
+    uci_test.cpp
+    benchmark_test.cpp
+    time_management_test.cpp
+    polyglot_test.cpp
+    endgame_test.cpp
+    lazy_smp_test.cpp
+    tuning_test.cpp
 )
 
 # Link tests with googletest (gtest_main provides main()) and our engine logic library

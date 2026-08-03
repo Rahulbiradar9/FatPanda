@@ -293,9 +293,10 @@ std::vector<Move> generateLegalMoves(Board& board) {
     legal.reserve(pseudo.size());
 
     for (Move m : pseudo) {
-        Board temp = board;
-        if (temp.make_move(m)) {
+        UndoState undo;
+        if (board.makeMove(m, undo)) {
             legal.push_back(m);
+            board.unmakeMove(m, undo);
         }
     }
 

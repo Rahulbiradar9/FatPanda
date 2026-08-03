@@ -4,6 +4,9 @@
 #include <vector>
 #include "move/move.hpp"
 
+#include <mutex>
+#include <array>
+
 namespace ChessEngine {
 
 // TT Entry flag types
@@ -42,6 +45,7 @@ public:
 
 private:
     std::vector<TTEntry> table_;
+    mutable std::array<std::mutex, 4096> locks_;
 };
 
 // Global transposition table instance

@@ -1,4 +1,5 @@
 #include "board.hpp"
+#include "evaluation/nnue.hpp"
 #include <sstream>
 #include <vector>
 #include <cctype>
@@ -117,6 +118,9 @@ bool Board::load_from_fen(std::string_view fen) {
     }
 
     hash_key_ = compute_hash_key();
+    history_len_ = 0;
+    history_[history_len_++] = hash_key_;
+    nnue_recompute_accumulator(*this, accum_history_[history_len_ - 1]);
     return true;
 }
 

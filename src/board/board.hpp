@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 #include "types.hpp"
 #include "bitboard.hpp"
 #include "move/move.hpp"
@@ -27,6 +28,12 @@ struct UndoState {
     int fullmoveNumber;
     Piece capturedPiece;
     uint64_t hashKey;
+};
+
+// The Accumulator represents the feature output of the first layer (transformer)
+// from both White and Black perspectives.
+struct Accumulator {
+    std::array<int16_t, 256> hv[2]; // Index 0: White perspective, 1: Black perspective
 };
 
 class Board {
@@ -104,6 +111,14 @@ public:
     std::string toFen() const;
     bool makeMove(Move m, UndoState& undo);
     void unmakeMove(Move m, const UndoState& undo);
+    bool isRepetition() const;
+    bool is_insufficient_material() const;
+    void makeNullMove(UndoState& undo);
+    void unmakeNullMove(const UndoState& undo);
+
+    inline const Accumulator& get_accumulator() const {
+        return accum_history_[history_len_ - 1];
+    }
 
 private:
     // 12 Piece Bitboards
@@ -122,6 +137,13 @@ private:
     int halfmove_clock_;
     int fullmove_number_;
     uint64_t hash_key_;
+
+    // Repetition history tracking
+    std::array<uint64_t, 1024> history_;
+    int history_len_;
+
+    // NNUE Accumulator History Stack
+    std::vector<Accumulator> accum_history_;
 };
 
 } // namespace ChessEngine

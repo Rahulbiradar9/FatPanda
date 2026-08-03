@@ -117,6 +117,25 @@ TEST(PerftTest, Position5) {
 }
 
 // Divide mode verification test
+// Endgame Promotion Position (Feasible for Depth 7 verification)
+TEST(PerftTest, EndgamePromotionDepth7) {
+    std::string fen = "8/k1P5/8/1K6/8/8/8/8 w - - 0 1";
+    std::vector<PerftTestCase> cases = {
+        {"Endgame Promo", fen, 1, 10ULL},
+        {"Endgame Promo", fen, 2, 25ULL},
+        {"Endgame Promo", fen, 3, 268ULL},
+        {"Endgame Promo", fen, 4, 926ULL},
+        {"Endgame Promo", fen, 5, 10857ULL},
+        {"Endgame Promo", fen, 6, 43261ULL},
+        {"Endgame Promo", fen, 7, 567584ULL}
+    };
+
+    std::cout << "\n--- Endgame Promotion Perft Results ---\n";
+    for (const auto& tc : cases) {
+        run_and_verify_perft(tc);
+    }
+}
+
 TEST(PerftTest, DivideMode) {
     Board board;
     board.setStartingPosition();

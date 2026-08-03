@@ -217,3 +217,60 @@ TEST(BoardTest, MakeMoveUnmakeMoveAndUndoState) {
     board.unmakeMove(m4, undo4);
     EXPECT_EQ(board.toFen(), pre_castle_board.toFen());
 }
+
+// Test repetition detection and halfmove clock resetting
+TEST(BoardTest, RepetitionTrackingAndClock) {
+    Board board;
+    board.reset_to_start();
+
+    // 1. Initial state check
+    EXPECT_FALSE(board.isRepetition());
+    EXPECT_EQ(board.get_halfmove_clock(), 0);
+
+    // Make moves: 1. Nf3 Nf6
+    Move nf3(Square::G1, Square::F3, MoveFlag::NORMAL);
+    UndoState u1;
+    EXPECT_TRUE(board.makeMove(nf3, u1));
+    EXPECT_EQ(board.get_halfmove_clock(), 1);
+    EXPECT_FALSE(board.isRepetition());
+
+    Move nf6(Square::G8, Square::F6, MoveFlag::NORMAL);
+    UndoState u2;
+    EXPECT_TRUE(board.makeMove(nf6, u2));
+    EXPECT_EQ(board.get_halfmove_clock(), 2);
+    EXPECT_FALSE(board.isRepetition());
+
+    // 2. Nf3 Ng1 (White Knight returns to starting square)
+    Move ng1(Square::F3, Square::G1, MoveFlag::NORMAL);
+    UndoState u3;
+    EXPECT_TRUE(board.makeMove(ng1, u3));
+    EXPECT_EQ(board.get_halfmove_clock(), 3);
+    EXPECT_FALSE(board.isRepetition()); // Black has not completed repetition yet
+
+    // 2... Ng8 (Black Knight returns to starting square)
+    Move ng8(Square::F6, Square::G8, MoveFlag::NORMAL);
+    UndoState u4;
+    EXPECT_TRUE(board.makeMove(ng8, u4));
+    EXPECT_EQ(board.get_halfmove_clock(), 4);
+    
+    // The position is now identical to the starting position (same hash key).
+    // This is the 2nd occurrence of this position, so it is a repetition!
+    EXPECT_TRUE(board.isRepetition());
+
+    // Unmake 2... Ng8
+    board.unmakeMove(ng8, u4);
+    EXPECT_FALSE(board.isRepetition());
+    EXPECT_EQ(board.get_halfmove_clock(), 3);
+
+    // Make 2... Ng8 again
+    EXPECT_TRUE(board.makeMove(ng8, u4));
+    EXPECT_TRUE(board.isRepetition());
+
+    // 3. Make a pawn push (irreversible, resets halfmove clock and clears repetition opportunity)
+    Move e4(Square::E2, Square::E4, MoveFlag::DOUBLE_PUSH);
+    UndoState u5;
+    EXPECT_TRUE(board.makeMove(e4, u5));
+    EXPECT_EQ(board.get_halfmove_clock(), 0);
+    EXPECT_FALSE(board.isRepetition());
+}
+

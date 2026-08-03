@@ -19,7 +19,11 @@ add_library(FatPandaLib STATIC
     src/move/move.cpp
     src/board/movegen.cpp
     src/board/perft.cpp
+    src/board/polyglot.cpp
+    src/board/syzygy.cpp
     src/evaluation/evaluation.cpp
+    src/evaluation/params.cpp
+    src/evaluation/nnue.cpp
     src/search/search.cpp
     src/hash/zobrist.cpp
     src/hash/tt.cpp

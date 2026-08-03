@@ -12,8 +12,10 @@ namespace ChessEngine {
 
 // Global search stop and time limit control variables
 extern std::atomic<bool> g_stop_search;
+extern int g_num_threads;
 extern std::chrono::steady_clock::time_point g_start_time;
-extern int g_time_limit_ms;
+extern int g_time_limit_soft_ms;
+extern int g_time_limit_hard_ms;
 
 // Constants for Search bounds
 constexpr int MATE_SCORE = 30000;
@@ -23,6 +25,8 @@ constexpr int MAX_PLY = 64;
 // Struct to track stats and context during a search
 struct SearchInfo {
     uint64_t nodes_searched = 0;
+    uint64_t tt_lookups = 0;
+    uint64_t tt_hits = 0;
     Move pv_move = MOVE_NONE; // Best move from the previous iterative deepening iteration
     Move pv_table[MAX_PLY][MAX_PLY] = {};
     int pv_length[MAX_PLY] = {};
@@ -37,6 +41,9 @@ struct SearchResult {
     uint64_t nodes_searched = 0;
     int search_depth = 0;
     std::vector<Move> pv;
+    uint64_t tt_lookups = 0;
+    uint64_t tt_hits = 0;
+    double branching_factor = 0.0;
 };
 
 /**
@@ -48,6 +55,21 @@ struct SearchResult {
  * @param max_depth The maximum search depth.
  * @return SearchResult containing the best move found and its evaluation score.
  */
+// Configuration toggles for advanced search optimizations
+struct SearchSettings {
+    bool pvs = true;
+    bool nmp = true;
+    bool lmr = true;
+    bool aspiration = true;
+    bool futility = true;
+    bool rfp = true;
+    bool see = true;
+};
+
+extern SearchSettings g_search_settings;
+
+SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha = -INFINITY_SCORE, int beta = INFINITY_SCORE);
+
 SearchResult search(Board& board, int max_depth);
 
 } // namespace ChessEngine

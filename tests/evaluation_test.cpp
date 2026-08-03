@@ -3,6 +3,8 @@
 #include "board/types.hpp"
 #include "board/movegen.hpp"
 #include "evaluation/evaluation.hpp"
+#include "evaluation/nnue.hpp"
+#include <fstream>
 
 using namespace ChessEngine;
 
@@ -188,4 +190,130 @@ TEST(EvaluationTest, RookActivity) {
 
     // Active rook should get open file and 7th rank bonuses
     EXPECT_GT(active_mobility, inactive_mobility);
+}
+
+// Test NNUE Starting Position Symmetry and Switching
+TEST(EvaluationTest, NNUESymmetryAndSwitching) {
+    bool prev_use = g_use_nnue;
+    g_use_nnue = true;
+
+    Board board;
+    board.reset_to_start();
+
+    // NNUE evaluation on starting position should be symmetric (0)
+    int score = evaluate(board);
+    EXPECT_EQ(score, 0);
+
+    // Switch back to classical
+    g_use_nnue = false;
+    int classical_score = evaluate(board);
+    EXPECT_EQ(classical_score, 0);
+
+    g_use_nnue = prev_use;
+}
+
+// Test NNUE Incremental Updates on moves
+TEST(EvaluationTest, NNUEIncrementalUpdates) {
+    bool prev_use = g_use_nnue;
+    g_use_nnue = true;
+
+    Board board;
+    // Position with White Rook on A1 and Black Rook on A8
+    EXPECT_TRUE(board.load_from_fen("r3k3/8/8/8/8/8/8/R3K3 w Qq - 0 1"));
+
+    // Get starting accumulator
+    Accumulator start_accum = board.get_accumulator();
+
+    // Make a capture move Rxa8
+    UndoState undo;
+    Move m = Move(Square::A1, Square::A8, PieceType::Rook, PieceType::None, MoveFlag::CAPTURE);
+    EXPECT_TRUE(board.makeMove(m, undo));
+
+    // Accumulator should have updated
+    Accumulator post_move_accum = board.get_accumulator();
+
+    // They should not be identical because Black Rook was captured and White Rook moved
+    bool identical = true;
+    for (size_t i = 0; i < 256; ++i) {
+        if (start_accum.hv[0][i] != post_move_accum.hv[0][i] ||
+            start_accum.hv[1][i] != post_move_accum.hv[1][i]) {
+            identical = false;
+            break;
+        }
+    }
+    EXPECT_FALSE(identical);
+
+    // Unmake the move
+    board.unmakeMove(m, undo);
+
+    // Accumulator should be back to start
+    Accumulator unmade_accum = board.get_accumulator();
+    for (size_t i = 0; i < 256; ++i) {
+        EXPECT_EQ(start_accum.hv[0][i], unmade_accum.hv[0][i]);
+        EXPECT_EQ(start_accum.hv[1][i], unmade_accum.hv[1][i]);
+    }
+
+    g_use_nnue = prev_use;
+}
+
+// Test mock NNUE file loading
+TEST(EvaluationTest, NNUELoadMockFile) {
+    bool prev_use = g_use_nnue;
+    std::string prev_file = g_nnue_file;
+
+    // Create a mock NNUE file
+    std::string mock_path = "mock_test.nnue";
+    std::ofstream out(mock_path, std::ios::binary);
+    ASSERT_TRUE(out);
+
+    // Write magic number: 0x4E4E5545
+    uint32_t magic = 0x4E4E5545;
+    out.write(reinterpret_cast<const char*>(&magic), 4);
+
+    // w1 size: 768 * 256 * sizeof(int16_t) = 393,216 bytes
+    std::vector<char> w1_bytes(768 * 256 * sizeof(int16_t), 0);
+    out.write(w1_bytes.data(), w1_bytes.size());
+
+    // b1 size: 256 * sizeof(int16_t) = 512 bytes
+    std::vector<char> b1_bytes(256 * sizeof(int16_t), 0);
+    out.write(b1_bytes.data(), b1_bytes.size());
+
+    // w2 size: 512 * 16 * sizeof(int16_t) = 16,384 bytes
+    std::vector<char> w2_bytes(512 * 16 * sizeof(int16_t), 0);
+    out.write(w2_bytes.data(), w2_bytes.size());
+
+    // b2 size: 16 * sizeof(int16_t) = 32 bytes
+    std::vector<char> b2_bytes(16 * sizeof(int16_t), 0);
+    out.write(b2_bytes.data(), b2_bytes.size());
+
+    // w3 size: 16 * sizeof(int16_t) = 32 bytes
+    std::vector<char> w3_bytes(16 * sizeof(int16_t), 0);
+    out.write(w3_bytes.data(), w3_bytes.size());
+
+    // b3 size: sizeof(int16_t) = 2 bytes
+    int16_t b3_val = 512; // 512 / 256 = 2 centipawns
+    out.write(reinterpret_cast<const char*>(&b3_val), sizeof(b3_val));
+
+    out.close();
+
+    // Try loading the file
+    bool loaded = nnue_load_file(mock_path);
+    EXPECT_TRUE(loaded);
+
+    // Test evaluating with the new loaded network
+    g_use_nnue = true;
+    Board board;
+    board.reset_to_start();
+
+    // Since all weights are 0, hidden layer activated values are std::max(0, 0 / 64) = 0.
+    // So output should be b3_val / 256 = 512 / 256 = 2 (or -2 depending on side to move, but White is 2)
+    int score = evaluate(board);
+    EXPECT_EQ(score, 2);
+
+    // Clean up
+    std::remove(mock_path.c_str());
+    g_use_nnue = prev_use;
+
+    // Reload default weights
+    nnue_load_file("nonexistent_file_to_force_default_weights.nnue");
 }

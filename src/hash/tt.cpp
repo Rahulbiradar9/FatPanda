@@ -28,12 +28,14 @@ void TranspositionTable::resize(size_t size_in_mb) {
 }
 
 void TranspositionTable::clear() {
-    for (auto& entry : table_) {
-        entry.key = 0;
-        entry.move = MOVE_NONE;
-        entry.score = 0;
-        entry.depth = -1;
-        entry.flags = 0;
+    for (size_t index = 0; index < table_.size(); ++index) {
+        size_t lock_index = index % 4096;
+        std::lock_guard<std::mutex> lock(locks_[lock_index]);
+        table_[index].key = 0;
+        table_[index].move = MOVE_NONE;
+        table_[index].score = 0;
+        table_[index].depth = -1;
+        table_[index].flags = 0;
     }
 }
 
@@ -41,6 +43,9 @@ bool TranspositionTable::probe(uint64_t key, int ply, TTEntry& entry) const {
     if (table_.empty()) return false;
     
     size_t index = static_cast<size_t>(key % table_.size());
+    size_t lock_index = index % 4096;
+    std::lock_guard<std::mutex> lock(locks_[lock_index]);
+    
     const TTEntry& table_entry = table_[index];
     
     if (table_entry.key == key) {
@@ -62,6 +67,9 @@ void TranspositionTable::record(uint64_t key, Move move, int score, int depth, u
     if (table_.empty()) return;
     
     size_t index = static_cast<size_t>(key % table_.size());
+    size_t lock_index = index % 4096;
+    std::lock_guard<std::mutex> lock(locks_[lock_index]);
+    
     TTEntry& table_entry = table_[index];
     
     // Adjust mate score to be path-length independent

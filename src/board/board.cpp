@@ -1,4 +1,5 @@
 #include "board.hpp"
+#include "evaluation/nnue.hpp"
 #include <iostream>
 #include <iomanip>
 #include <string>
@@ -68,6 +69,10 @@ void Board::clear() {
     halfmove_clock_ = 0;
     fullmove_number_ = 1;
     hash_key_ = 0;
+    history_len_ = 0;
+    accum_history_.resize(1024);
+    history_[history_len_++] = hash_key_;
+    nnue_recompute_accumulator(*this, accum_history_[history_len_ - 1]);
 }
 
 void Board::set_piece(Square sq, Piece p) {
@@ -174,6 +179,9 @@ void Board::reset_to_start() {
     halfmove_clock_ = 0;
     fullmove_number_ = 1;
     hash_key_ = compute_hash_key();
+    history_len_ = 0;
+    history_[history_len_++] = hash_key_;
+    nnue_recompute_accumulator(*this, accum_history_[history_len_ - 1]);
 }
 
 void Board::print() const {
@@ -225,16 +233,19 @@ Piece Board::getPiece(Square sq) const {
 
 void Board::placePiece(Square sq, Piece p) {
     set_piece(sq, p);
+    nnue_recompute_accumulator(*this, accum_history_[history_len_ - 1]);
 }
 
 void Board::removePiece(Square sq) {
     set_piece(sq, Piece::None);
+    nnue_recompute_accumulator(*this, accum_history_[history_len_ - 1]);
 }
 
 void Board::movePiece(Square from, Square to) {
     Piece p = get_piece(from);
     set_piece(from, Piece::None);
     set_piece(to, p);
+    nnue_recompute_accumulator(*this, accum_history_[history_len_ - 1]);
 }
 
 void Board::printBoard() const {
@@ -250,6 +261,11 @@ std::string Board::toFen() const {
 }
 
 bool Board::makeMove(Move m, UndoState& undo) {
+    // Save current hash in history
+    if (history_len_ < 1024) {
+        history_[history_len_++] = hash_key_;
+    }
+
     // 1. Save state in UndoState
     undo.enPassant = en_passant_;
     undo.castlingRights = castling_rights_;
@@ -279,6 +295,54 @@ bool Board::makeMove(Move m, UndoState& undo) {
         }
     }
     undo.capturedPiece = captured;
+
+    // Prepare NNUE incremental updates
+    std::array<std::pair<Piece, Square>, 3> nnue_removed;
+    std::array<std::pair<Piece, Square>, 3> nnue_added;
+    int nnue_num_removed = 0;
+    int nnue_num_added = 0;
+
+    nnue_removed[nnue_num_removed++] = {moving_piece, from};
+
+    if (m.isPromotion()) {
+        Piece promo_piece = make_piece(us, m.getPromotionPieceType());
+        nnue_added[nnue_num_added++] = {promo_piece, to};
+    } else {
+        nnue_added[nnue_num_added++] = {moving_piece, to};
+    }
+
+    if (m.isCapture()) {
+        if (m.isEnPassant()) {
+            Square cap_sq = make_square(get_file(to), get_rank(from));
+            nnue_removed[nnue_num_removed++] = {captured, cap_sq};
+        } else {
+            nnue_removed[nnue_num_removed++] = {captured, to};
+        }
+    }
+
+    if (m.isCastling()) {
+        int file_diff = get_file(to) - get_file(from);
+        Piece rook = make_piece(us, PieceType::Rook);
+        Square r_from, r_to;
+        if (file_diff > 0) { // Kingside
+            r_from = (us == Color::White) ? Square::H1 : Square::H8;
+            r_to = (us == Color::White) ? Square::F1 : Square::F8;
+        } else { // Queenside
+            r_from = (us == Color::White) ? Square::A1 : Square::A8;
+            r_to = (us == Color::White) ? Square::D1 : Square::D8;
+        }
+        nnue_removed[nnue_num_removed++] = {rook, r_from};
+        nnue_added[nnue_num_added++] = {rook, r_to};
+    }
+
+    if (history_len_ >= 2) {
+        nnue_update_accumulator(
+            accum_history_[history_len_ - 2],
+            accum_history_[history_len_ - 1],
+            nnue_removed, nnue_num_removed,
+            nnue_added, nnue_num_added
+        );
+    }
 
     // Reset en-passant square for this move (might be set below for double pushes)
     en_passant_ = Square::None;
@@ -437,6 +501,97 @@ void Board::unmakeMove(Move m, const UndoState& undo) {
     }
 
     hash_key_ = undo.hashKey;
+
+    if (history_len_ > 0) {
+        history_len_--;
+    }
+}
+
+bool Board::isRepetition() const {
+    // Look back in the history at most by the halfmove_clock_
+    int start = std::max(0, history_len_ - halfmove_clock_);
+    for (int i = history_len_ - 1; i >= start; --i) {
+        if (history_[i] == hash_key_) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Board::is_insufficient_material() const {
+    // If there are pawns, rooks, or queens, it is not insufficient material
+    if (get_piece_bitboard(Piece::WhitePawn) || get_piece_bitboard(Piece::BlackPawn) ||
+        get_piece_bitboard(Piece::WhiteRook) || get_piece_bitboard(Piece::BlackRook) ||
+        get_piece_bitboard(Piece::WhiteQueen) || get_piece_bitboard(Piece::BlackQueen)) {
+        return false;
+    }
+
+    int w_knights = count_bits(get_piece_bitboard(Piece::WhiteKnight));
+    int b_knights = count_bits(get_piece_bitboard(Piece::BlackKnight));
+    int w_bishops = count_bits(get_piece_bitboard(Piece::WhiteBishop));
+    int b_bishops = count_bits(get_piece_bitboard(Piece::BlackBishop));
+
+    int total_pieces = w_knights + b_knights + w_bishops + b_bishops;
+
+    if (total_pieces == 0) {
+        return true; // K vs K
+    }
+
+    if (total_pieces == 1) {
+        // KB vs K or KN vs K
+        return true;
+    }
+
+    if (total_pieces == 2 && w_bishops == 1 && b_bishops == 1) {
+        // KB vs KB - check if bishops are on same square color
+        Square w_bis_sq = get_lsb(get_piece_bitboard(Piece::WhiteBishop));
+        Square b_bis_sq = get_lsb(get_piece_bitboard(Piece::BlackBishop));
+        
+        // A square is dark if (file + rank) % 2 == 0
+        int w_color = (static_cast<int>(w_bis_sq) % 8 + static_cast<int>(w_bis_sq) / 8) % 2;
+        int b_color = (static_cast<int>(b_bis_sq) % 8 + static_cast<int>(b_bis_sq) / 8) % 2;
+        
+        return w_color == b_color;
+    }
+
+    return false;
+}
+
+void Board::makeNullMove(UndoState& undo) {
+    undo.enPassant = en_passant_;
+    undo.castlingRights = castling_rights_;
+    undo.halfmoveClock = halfmove_clock_;
+    undo.fullmoveNumber = fullmove_number_;
+    undo.hashKey = hash_key_;
+
+    // Save enPassant square to hash and clear it
+    if (en_passant_ != Square::None) {
+        hash_key_ ^= en_passant_keys[static_cast<size_t>(en_passant_)];
+        en_passant_ = Square::None;
+    }
+    if (side_to_move_ == Color::Black) {
+        fullmove_number_++;
+    }
+    side_to_move_ = ~side_to_move_;
+    hash_key_ ^= side_key;
+    halfmove_clock_++;
+    
+    // Push the pre-null-move state to history
+    if (history_len_ < 1024) {
+        accum_history_[history_len_] = accum_history_[history_len_ - 1];
+        history_[history_len_++] = hash_key_;
+    }
+}
+
+void Board::unmakeNullMove(const UndoState& undo) {
+    side_to_move_ = ~side_to_move_;
+    en_passant_ = undo.enPassant;
+    halfmove_clock_ = undo.halfmoveClock;
+    fullmove_number_ = undo.fullmoveNumber;
+    hash_key_ = undo.hashKey;
+    if (history_len_ > 0) {
+        history_len_--;
+    }
 }
 
 } // namespace ChessEngine

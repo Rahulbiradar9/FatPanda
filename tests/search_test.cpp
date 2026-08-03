@@ -114,3 +114,36 @@ TEST(SearchTest, SearchRespectsStopFlag) {
     // Reset stop search flag
     g_stop_search.store(false);
 }
+
+// Test that search identifies threefold repetition as a draw (0 score)
+TEST(SearchTest, DetectsThreefoldRepetitionDraw) {
+    Board board;
+    // Load a position where White is down a Queen (RNB1KBNR on back rank)
+    ASSERT_TRUE(board.loadFromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1"));
+
+    // Force a repetition sequence in the board history:
+    // 1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6
+    Move nf3(Square::G1, Square::F3, MoveFlag::NORMAL);
+    Move nf6(Square::G8, Square::F6, MoveFlag::NORMAL);
+    Move ng1(Square::F3, Square::G1, MoveFlag::NORMAL);
+    Move ng8(Square::F6, Square::G8, MoveFlag::NORMAL);
+
+    UndoState u1, u2, u3, u4, u5, u6;
+    ASSERT_TRUE(board.makeMove(nf3, u1));
+    ASSERT_TRUE(board.makeMove(nf6, u2));
+    ASSERT_TRUE(board.makeMove(ng1, u3));
+    ASSERT_TRUE(board.makeMove(ng8, u4));
+    ASSERT_TRUE(board.makeMove(nf3, u5));
+    ASSERT_TRUE(board.makeMove(nf6, u6));
+
+    // The current position occurred twice.
+    // If White plays Ng1, it will be the 3rd occurrence (draw).
+    // The search at depth 2 should recognize this and evaluate it as 0.
+    SearchResult result = search(board, 2);
+    
+    // Best move should be ng1 (f3g1) since it claims a draw (0 score),
+    // which is much better than playing a normal move while down a Queen (-900+ score).
+    EXPECT_EQ(result.best_move.to_string(), "f3g1");
+    EXPECT_EQ(result.score, 0);
+}
+
