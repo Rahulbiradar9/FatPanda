@@ -7,7 +7,7 @@
 </div>
 
 FatPanda is a clean, modular, and performance-oriented competitive chess engine built from scratch in C++20. It implements efficient bitboard representations, legal move generation, transposition tables with Zobrist hashing, and a highly tuned search-evaluation architecture.
-
+ 
 ## Releases
 
 | Version | Description | Release Date |
