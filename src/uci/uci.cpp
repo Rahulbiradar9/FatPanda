@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -386,6 +387,8 @@ void uci_loop() {
             parse_setoption(ss);
         } else if (command == "tune") {
             parse_tune(ss);
+        } else if (command == "datagen") {
+            parse_datagen(ss);
         } else if (command == "quit") {
             g_stop_search.store(true);
             if (g_search_thread.joinable()) {
@@ -519,6 +522,143 @@ void parse_tune(std::stringstream& ss) {
         std::cout << "info string Match finished. Final score: Tuned " << tuned_wins 
                   << " - Baseline " << baseline_wins << " - Draws " << draws << std::endl;
     }
+}
+
+void parse_datagen(std::stringstream& ss) {
+    int games = 100;
+    int depth = 6;
+    int random_plies = 8;
+    std::string output_path = "train_data.plain";
+
+    std::string token;
+    while (ss >> token) {
+        if (token == "games") {
+            ss >> games;
+        } else if (token == "depth") {
+            ss >> depth;
+        } else if (token == "output") {
+            ss >> output_path;
+        } else if (token == "random_plies") {
+            ss >> random_plies;
+        }
+    }
+
+    if (games <= 0) games = 10;
+    if (depth <= 0) depth = 6;
+
+    std::cout << "info string Starting self-play datagen: " << games << " games, depth " << depth 
+              << ", opening plies " << random_plies << ", output: " << output_path << std::endl;
+
+    std::ofstream out(output_path, std::ios::app);
+    if (!out) {
+        std::cout << "info string Error: could not open output file " << output_path << std::endl;
+        return;
+    }
+
+    bool prev_book = g_own_book;
+    g_own_book = false; // Disable opening book during self-play data generation
+
+    uint64_t total_positions = 0;
+    uint64_t total_filtered_out = 0;
+
+    struct PositionRecord {
+        std::string fen;
+        int score;
+        bool valid;
+    };
+
+    for (int g = 0; g < games; ++g) {
+        Board board;
+        board.reset_to_start();
+
+        // 1. Play random legal opening moves to generate varied initial positions
+        for (int p = 0; p < random_plies; ++p) {
+            std::vector<Move> legal = generate_legal_moves(board);
+            if (legal.empty()) break;
+            Move m = legal[static_cast<size_t>(rand()) % legal.size()];
+            UndoState undo;
+            board.makeMove(m, undo);
+        }
+
+        std::vector<PositionRecord> game_history;
+        double game_result = 0.5; // default draw
+        bool game_over = false;
+
+        for (int move_num = 0; move_num < 400 && !game_over; ++move_num) {
+            // Draw conditions: 50-move rule, threefold repetition, insufficient material
+            if (board.get_halfmove_clock() >= 100 || board.isRepetition() || board.is_insufficient_material()) {
+                game_result = 0.5;
+                game_over = true;
+                break;
+            }
+
+            bool in_check = is_in_check(board, board.get_side_to_move());
+            std::string fen = board.to_fen();
+
+            // Run search
+            g_tt.clear();
+            g_stop_search.store(false);
+            g_time_limit_soft_ms = -1;
+            g_time_limit_hard_ms = -1;
+
+            SearchResult res = search(board, depth);
+            Move best_m = res.best_move;
+
+            if (best_m.is_none()) {
+                std::vector<Move> legal = generate_legal_moves(board);
+                if (legal.empty()) {
+                    if (in_check) {
+                        // Current side to move is checkmated -> other side wins
+                        game_result = (board.get_side_to_move() == Color::White) ? 0.0 : 1.0;
+                    } else {
+                        // Stalemate
+                        game_result = 0.5;
+                    }
+                } else {
+                    game_result = 0.5;
+                }
+                game_over = true;
+                break;
+            }
+
+            // Filtering rules to exclude noisy/unstable positions:
+            // 1. Exclude positions where king is in check
+            // 2. Exclude positions with a capture move (noisy tactical transition)
+            // 3. Exclude positions near mate bounds (|score| > 2000 or mate score)
+            bool is_capture = best_m.isCapture();
+            bool near_mate = (std::abs(res.score) >= MATE_SCORE - MAX_PLY) || (std::abs(res.score) > 2000);
+            bool is_valid = !in_check && !is_capture && !near_mate;
+
+            game_history.push_back({fen, res.score, is_valid});
+
+            UndoState undo;
+            board.makeMove(best_m, undo);
+        }
+
+        // Write valid game records with game result
+        int game_valid_count = 0;
+        for (const auto& rec : game_history) {
+            if (rec.valid) {
+                out << rec.fen << " | " << rec.score << " | " << game_result << "\n";
+                game_valid_count++;
+                total_positions++;
+            } else {
+                total_filtered_out++;
+            }
+        }
+        out.flush();
+
+        std::cout << "info string Datagen game " << g + 1 << "/" << games 
+                  << " finished. Result: " << game_result 
+                  << ", Positions saved: " << game_valid_count 
+                  << " (Total saved: " << total_positions << ")" << std::endl;
+    }
+
+    g_own_book = prev_book;
+    out.close();
+
+    std::cout << "info string Datagen complete. Total valid positions: " << total_positions 
+              << ", Filtered out: " << total_filtered_out << std::endl;
 }
 
 } // namespace ChessEngine

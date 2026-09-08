@@ -19,5 +19,6 @@ void parse_position(Board& board, std::stringstream& ss);
 void parse_go(Board& board, std::stringstream& ss);
 void join_search_thread();
 void parse_tune(std::stringstream& ss);
+void parse_datagen(std::stringstream& ss);
 
 } // namespace ChessEngine
