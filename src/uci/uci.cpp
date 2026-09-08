@@ -318,6 +318,13 @@ void parse_setoption(std::stringstream& ss) {
         } else if (option_value == "false" || option_value == "False" || option_value == "0") {
             g_search_settings.corrhist = false;
         }
+    } else if (option_name == "DeltaMargin" || option_name == "deltamargin" || option_name == "Delta Margin") {
+        try {
+            int margin = std::stoi(option_value);
+            if (margin >= 0) {
+                g_delta_margin = margin;
+            }
+        } catch (...) {}
     }
 }
 
@@ -359,6 +366,7 @@ void uci_loop() {
             std::cout << "option name ProbCut type check default true\n";
             std::cout << "option name ProbCutMargin type spin default 100 min 10 max 500\n";
             std::cout << "option name CorrectionHistory type check default true\n";
+            std::cout << "option name DeltaMargin type spin default 200 min 0 max 1000\n";
             std::cout << "uciok" << std::endl;
         } else if (command == "isready") {
             std::cout << "readyok" << std::endl;

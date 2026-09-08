@@ -89,6 +89,7 @@ extern SearchSettings g_search_settings;
 extern int g_singular_margin;
 extern int g_lmp_max_depth;
 extern int g_probcut_margin;
+extern int g_delta_margin;
 
 SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha = -INFINITY_SCORE, int beta = INFINITY_SCORE);
 

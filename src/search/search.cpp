@@ -23,6 +23,7 @@ SearchSettings g_search_settings;
 int g_singular_margin = 2;
 int g_lmp_max_depth = 8;
 int g_probcut_margin = 100;
+int g_delta_margin = 200;
 
 namespace {
 
@@ -107,6 +108,22 @@ int get_piece_value(PieceType type) {
         case PieceType::King:   return 20000;
         default:                return 0;
     }
+}
+
+// Helper to compute capture / promotion value for Delta Pruning
+inline int get_capture_value(const Board& board, Move move) {
+    Square to = move.getDestinationSquare();
+    Piece captured = board.get_piece(to);
+    PieceType victim = (captured != Piece::None) ? get_piece_type(captured) : PieceType::None;
+    if (move.isEnPassant()) {
+        victim = PieceType::Pawn;
+    }
+    int val = get_piece_value(victim);
+    if (move.isPromotion()) {
+        PieceType promo = move.getPromotionPieceType();
+        val += get_piece_value(promo) - get_piece_value(PieceType::Pawn);
+    }
+    return val;
 }
 
 // Static Exchange Evaluation (SEE)
@@ -401,10 +418,11 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
 
     int original_alpha = alpha;
     bool in_check = is_in_check(board, board.get_side_to_move());
+    int stand_pat = 0;
 
     // Standing pat evaluation (only allowed if not in check)
     if (!in_check) {
-        int stand_pat = evaluate(board);
+        stand_pat = evaluate(board);
         if (g_search_settings.corrhist) {
             stand_pat += get_correction_value(board, info);
         }
@@ -416,7 +434,7 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
         }
     }
 
-    // Generate moves: if in check, generate all moves; otherwise, only captures/promotions
+    // Generate moves: if in check, generate all moves (check evasions); otherwise, only captures/promotions
     std::vector<Move> moves = in_check ? generate_legal_moves(board) : generate_legal_captures(board);
     
     // Checkmate/stalemate check inside quiescence search if we are in check and have no moves
@@ -426,9 +444,34 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
 
     order_moves(board, moves, MOVE_NONE, ply, info);
 
+    bool endgame = false;
+    if (!in_check) {
+        int non_pawn_count = count_bits(board.get_occupancy(Color::None) 
+                                      ^ board.get_piece_bitboard(Piece::WhitePawn) 
+                                      ^ board.get_piece_bitboard(Piece::BlackPawn) 
+                                      ^ board.get_piece_bitboard(Piece::WhiteKing) 
+                                      ^ board.get_piece_bitboard(Piece::BlackKing));
+        endgame = (non_pawn_count <= 2);
+    }
+
     for (Move m : moves) {
-        if (g_search_settings.see && see(board, m) < 0) {
-            continue; // Prune bad captures
+        if (!in_check) {
+            // (1) Delta Pruning:
+            // If even with winning the captured piece plus a safety delta margin,
+            // we cannot raise alpha, skip searching this capture.
+            // Disabled in endgames to prevent missing subtle pawn promotions or zugzwang lines.
+            if (!endgame && !m.isPromotion()) {
+                int capture_val = get_capture_value(board, m);
+                if (stand_pat + capture_val + g_delta_margin < alpha) {
+                    continue;
+                }
+            }
+
+            // (2) SEE Pruning:
+            // Skip captures where static exchange evaluation is negative (SEE < 0).
+            if (g_search_settings.see && see(board, m) < 0) {
+                continue; // Prune losing captures
+            }
         }
 
         UndoState undo;
