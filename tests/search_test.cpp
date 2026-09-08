@@ -195,3 +195,26 @@ TEST(SearchTest, PerftUnaffectedBySearchSettings) {
     EXPECT_EQ(p_kiwi, 97862ULL);
 }
 
+// Test Correction History execution and toggle
+TEST(SearchTest, CorrectionHistoryExecution) {
+    Board board;
+    board.reset_to_start();
+
+    // 1. Search with Correction History enabled
+    g_search_settings.corrhist = true;
+    g_tt.clear();
+    SearchResult res_corr = search(board, 5);
+    EXPECT_FALSE(res_corr.best_move.is_none());
+    EXPECT_GT(res_corr.nodes_searched, 0);
+
+    // 2. Search with Correction History disabled
+    g_search_settings.corrhist = false;
+    g_tt.clear();
+    SearchResult res_no_corr = search(board, 5);
+    EXPECT_FALSE(res_no_corr.best_move.is_none());
+    EXPECT_GT(res_no_corr.nodes_searched, 0);
+
+    // Restore default
+    g_search_settings.corrhist = true;
+}
+

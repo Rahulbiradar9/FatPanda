@@ -312,6 +312,12 @@ void parse_setoption(std::stringstream& ss) {
                 g_probcut_margin = margin;
             }
         } catch (...) {}
+    } else if (option_name == "CorrectionHistory" || option_name == "correctionhistory" || option_name == "Correction History") {
+        if (option_value == "true" || option_value == "True" || option_value == "1") {
+            g_search_settings.corrhist = true;
+        } else if (option_value == "false" || option_value == "False" || option_value == "0") {
+            g_search_settings.corrhist = false;
+        }
     }
 }
 
@@ -352,6 +358,7 @@ void uci_loop() {
             std::cout << "option name LMPMaxDepth type spin default 8 min 1 max 16\n";
             std::cout << "option name ProbCut type check default true\n";
             std::cout << "option name ProbCutMargin type spin default 100 min 10 max 500\n";
+            std::cout << "option name CorrectionHistory type check default true\n";
             std::cout << "uciok" << std::endl;
         } else if (command == "isready") {
             std::cout << "readyok" << std::endl;

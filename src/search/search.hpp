@@ -27,6 +27,11 @@ struct MoveContext {
     Square to = Square::None;
 };
 
+// Correction history configuration
+constexpr int CORRECTION_HISTORY_SIZE = 16384;
+constexpr int CORRECTION_HISTORY_SCALE = 256;
+constexpr int CORRECTION_HISTORY_MAX = 16384;
+
 // Struct to track stats and context during a search
 struct SearchInfo {
     uint64_t nodes_searched = 0;
@@ -39,6 +44,8 @@ struct SearchInfo {
     int history_moves[12][64] = {};
     int cont_history_1ply[12][64][12][64] = {};
     int cont_history_2ply[12][64][12][64] = {};
+    int pawn_corr_hist[2][CORRECTION_HISTORY_SIZE] = {};
+    int non_pawn_corr_hist[2][CORRECTION_HISTORY_SIZE] = {};
 };
 
 // Struct containing the result of a search
@@ -75,6 +82,7 @@ struct SearchSettings {
     bool iir = true;
     bool lmp = true;
     bool probcut = true;
+    bool corrhist = true;
 };
 
 extern SearchSettings g_search_settings;

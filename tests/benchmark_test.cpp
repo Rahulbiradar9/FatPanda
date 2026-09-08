@@ -98,6 +98,7 @@ TEST(BenchmarkTest, SearchOptimizationsIndependentBenchmark) {
     SearchSettings no_iir = base_settings; no_iir.iir = false;
     SearchSettings no_lmp = base_settings; no_lmp.lmp = false;
     SearchSettings no_probcut = base_settings; no_probcut.probcut = false;
+    SearchSettings no_corrhist = base_settings; no_corrhist.corrhist = false;
 
     std::vector<BenchmarkRun> runs = {
         {"All Enabled (Baseline)", base_settings},
@@ -111,7 +112,8 @@ TEST(BenchmarkTest, SearchOptimizationsIndependentBenchmark) {
         {"Without Singular Extensions", no_se},
         {"Without Internal Iterative Reductions", no_iir},
         {"Without Late Move Pruning", no_lmp},
-        {"Without ProbCut", no_probcut}
+        {"Without ProbCut", no_probcut},
+        {"Without Correction History", no_corrhist}
     };
 
     std::cout << "\n=========================================================================\n"

@@ -4,6 +4,7 @@
 #include "board/attacks.hpp"
 #include "board/syzygy.hpp"
 #include "hash/tt.hpp"
+#include "hash/zobrist.hpp"
 #include <algorithm>
 #include <iostream>
 #include <vector>
@@ -41,6 +42,57 @@ constexpr int PROBCUT_MIN_DEPTH = 5;
 constexpr std::array<int, 17> LMP_MOVE_THRESHOLDS = {
     0, 2, 4, 7, 12, 17, 24, 31, 40, 49, 60, 71, 84, 97, 112, 127, 144
 };
+
+// Fast computation of pawn hash key for pawn structure correction history
+inline uint64_t compute_pawn_hash(const Board& board) {
+    uint64_t hash = 0;
+    Bitboard wp = board.get_piece_bitboard(Piece::WhitePawn);
+    while (wp) {
+        Square sq = pop_lsb(wp);
+        hash ^= piece_keys[static_cast<size_t>(Piece::WhitePawn)][static_cast<size_t>(sq)];
+    }
+    Bitboard bp = board.get_piece_bitboard(Piece::BlackPawn);
+    while (bp) {
+        Square sq = pop_lsb(bp);
+        hash ^= piece_keys[static_cast<size_t>(Piece::BlackPawn)][static_cast<size_t>(sq)];
+    }
+    return hash;
+}
+
+// Fast computation of non-pawn piece hash key for material/piece placement correction history
+inline uint64_t compute_non_pawn_hash(const Board& board) {
+    uint64_t hash = 0;
+    static constexpr Piece non_pawns[] = {
+        Piece::WhiteKnight, Piece::WhiteBishop, Piece::WhiteRook, Piece::WhiteQueen, Piece::WhiteKing,
+        Piece::BlackKnight, Piece::BlackBishop, Piece::BlackRook, Piece::BlackQueen, Piece::BlackKing
+    };
+    for (Piece p : non_pawns) {
+        Bitboard bb = board.get_piece_bitboard(p);
+        while (bb) {
+            Square sq = pop_lsb(bb);
+            hash ^= piece_keys[static_cast<size_t>(p)][static_cast<size_t>(sq)];
+        }
+    }
+    return hash;
+}
+
+// Get the combined pawn + non-pawn evaluation correction (in centipawns)
+inline int get_correction_value(const Board& board, const SearchInfo& info) {
+    Color stm = board.get_side_to_move();
+    int stm_idx = (stm == Color::White) ? 0 : 1;
+    uint64_t pawn_hash = compute_pawn_hash(board);
+    uint64_t non_pawn_hash = compute_non_pawn_hash(board);
+
+    int pawn_corr = info.pawn_corr_hist[stm_idx][pawn_hash % CORRECTION_HISTORY_SIZE];
+    int non_pawn_corr = info.non_pawn_corr_hist[stm_idx][non_pawn_hash % CORRECTION_HISTORY_SIZE];
+
+    return (pawn_corr + non_pawn_corr) / CORRECTION_HISTORY_SCALE;
+}
+
+// Update a correction history entry using the gravity formula: entry += bonus - (entry * |bonus|) / MAX
+inline void update_corr_entry(int& entry, int bonus) {
+    entry += bonus - (entry * std::abs(bonus)) / CORRECTION_HISTORY_MAX;
+}
 
 int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info, Move excluded_move = MOVE_NONE, MoveContext prev1 = {}, MoveContext prev2 = {});
 
@@ -353,6 +405,9 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
     // Standing pat evaluation (only allowed if not in check)
     if (!in_check) {
         int stand_pat = evaluate(board);
+        if (g_search_settings.corrhist) {
+            stand_pat += get_correction_value(board, info);
+        }
         if (stand_pat >= beta) {
             return stand_pat; // Beta cutoff
         }
@@ -474,10 +529,18 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
     bool in_check = is_in_check(board, board.get_side_to_move());
 
+    int raw_static_eval = 0;
+    int static_eval = 0;
+    if (!in_check) {
+        raw_static_eval = evaluate(board);
+        int corr = g_search_settings.corrhist ? get_correction_value(board, info) : 0;
+        static_eval = raw_static_eval + corr;
+    }
+
     // Reverse Futility Pruning (RFP)
     if (excluded_move == MOVE_NONE && g_search_settings.rfp && depth <= 3 && !in_check && ply > 0) {
         int margin = depth * 120;
-        if (evaluate(board) - margin >= beta) {
+        if (static_eval - margin >= beta) {
             return beta; // Fail high
         }
     }
@@ -488,7 +551,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         Bitboard our_non_pawns = board.get_occupancy(us) 
                                 ^ board.get_piece_bitboard(make_piece(us, PieceType::Pawn))
                                 ^ board.get_piece_bitboard(make_piece(us, PieceType::King));
-        if (our_non_pawns != EMPTY_BOARD) {
+        if (our_non_pawns != EMPTY_BOARD && static_eval >= beta) {
             UndoState undo;
             board.makeNullMove(undo);
             int R = 2; // Reduction depth
@@ -628,7 +691,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     Move best_move = MOVE_NONE;
 
     bool futility_pruning = false;
-    if (g_search_settings.futility && depth == 1 && !in_check && (evaluate(board) + 150 < alpha)) {
+    if (g_search_settings.futility && depth == 1 && !in_check && (static_eval + 150 < alpha)) {
         futility_pruning = true;
     }
 
@@ -806,6 +869,38 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     if (moves_searched == 0) {
         if (excluded_move != MOVE_NONE) {
             return alpha;
+        }
+    }
+
+    // Correction History Update:
+    // When a search completes for a quiet position (not in check, not an excluded move search, away from mate scores),
+    // update correction history towards (best_score - raw_static_eval) using the gravity formula.
+    if (g_search_settings.corrhist
+        && !in_check
+        && excluded_move == MOVE_NONE
+        && std::abs(best_score) < MATE_SCORE - MAX_PLY
+        && (best_move == MOVE_NONE || (!best_move.isCapture() && !best_move.isPromotion())))
+    {
+        bool should_update = false;
+        if (best_score >= beta && best_score > raw_static_eval) {
+            should_update = true;
+        } else if (best_score <= original_alpha && best_score < raw_static_eval) {
+            should_update = true;
+        } else if (best_score > original_alpha && best_score < beta) {
+            should_update = true;
+        }
+
+        if (should_update) {
+            int error = best_score - raw_static_eval;
+            int bonus = std::clamp(error * depth, -CORRECTION_HISTORY_MAX, CORRECTION_HISTORY_MAX);
+
+            Color stm = board.get_side_to_move();
+            int stm_idx = (stm == Color::White) ? 0 : 1;
+            uint64_t pawn_hash = compute_pawn_hash(board);
+            uint64_t non_pawn_hash = compute_non_pawn_hash(board);
+
+            update_corr_entry(info.pawn_corr_hist[stm_idx][pawn_hash % CORRECTION_HISTORY_SIZE], bonus);
+            update_corr_entry(info.non_pawn_corr_hist[stm_idx][non_pawn_hash % CORRECTION_HISTORY_SIZE], bonus);
         }
     }
 
