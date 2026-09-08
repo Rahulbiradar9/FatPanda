@@ -4,6 +4,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <immintrin.h>
 
 namespace ChessEngine {
 
@@ -46,16 +47,16 @@ static void init_default_weights() {
     }
     
     // Initialize biases to 0
-    std::fill(b1.begin(), b1.end(), 0);
+    std::fill(b1.begin(), b1.end(), static_cast<int16_t>(0));
     
     // Initialize layer 2 weights to 1
     for (int i = 0; i < 512; ++i) {
-        std::fill(w2[i].begin(), w2[i].end(), 1);
+        std::fill(w2[i].begin(), w2[i].end(), static_cast<int16_t>(1));
     }
-    std::fill(b2.begin(), b2.end(), 0);
+    std::fill(b2.begin(), b2.end(), static_cast<int16_t>(0));
     
     // Initialize layer 3 weights to 1
-    std::fill(w3.begin(), w3.end(), 1);
+    std::fill(w3.begin(), w3.end(), static_cast<int16_t>(1));
     b3 = 0;
     
     s_network_loaded = true;
