@@ -20,6 +20,7 @@ int g_time_limit_hard_ms = -1;
 
 SearchSettings g_search_settings;
 int g_singular_margin = 2;
+int g_lmp_max_depth = 8;
 
 namespace {
 
@@ -31,6 +32,11 @@ constexpr int HISTORY_WEIGHT_TOTAL = HISTORY_WEIGHT_MAIN + HISTORY_WEIGHT_CONT1 
 // Internal Iterative Reduction (IIR) configuration
 constexpr int IIR_MIN_DEPTH = 4;
 constexpr int IIR_REDUCTION = 1;
+
+// Late Move Pruning (LMP) move-count thresholds by depth (1..16) based on (d*d + 2*d)/2
+constexpr std::array<int, 17> LMP_MOVE_THRESHOLDS = {
+    0, 2, 4, 7, 12, 17, 24, 31, 40, 49, 60, 71, 84, 97, 112, 127, 144
+};
 
 int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info, Move excluded_move = MOVE_NONE, MoveContext prev1 = {}, MoveContext prev2 = {});
 
@@ -556,18 +562,26 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     int best_score = -INFINITY_SCORE;
     Move best_move = MOVE_NONE;
 
+    bool pv_node = (beta - alpha > 1);
+
     bool futility_pruning = false;
     if (g_search_settings.futility && depth == 1 && !in_check && (evaluate(board) + 150 < alpha)) {
         futility_pruning = true;
     }
 
     int moves_searched = 0;
+    int quiet_moves_searched = 0;
+
     for (Move m : moves) {
         if (m == excluded_move) {
             continue;
         }
 
-        if (futility_pruning && !m.isCapture() && !m.isPromotion() && excluded_move == MOVE_NONE) {
+        bool is_quiet = !m.isCapture() && !m.isPromotion();
+        bool is_killer = (ply < MAX_PLY && (m == info.killer_moves[0][ply] || m == info.killer_moves[1][ply]));
+        bool is_tt_move = (m == tt_move);
+
+        if (futility_pruning && is_quiet && excluded_move == MOVE_NONE) {
             continue; // Prune quiet move
         }
 
@@ -577,6 +591,36 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         UndoState undo;
         if (!board.makeMove(m, undo)) {
             continue;
+        }
+
+        bool gives_check = is_in_check(board, board.get_side_to_move());
+
+        // Late Move Pruning (LMP) / Move-count-based pruning:
+        // Note on interaction with LMR (Late Move Reduction):
+        // - LMP acts as a hard pruning gate for quiet, non-checking moves in non-PV nodes at shallow depths (depth <= lmpMaxDepth).
+        // - If quiet_moves_searched exceeds the depth-dependent threshold, the move is skipped entirely.
+        // - Moves pruned by LMP never reach the search recursion and thus are never passed to LMR.
+        // - Moves that survive LMP (or moves in PV nodes / higher depths / tactical moves / checks / killers / TT moves)
+        //   proceed to search and may receive standard LMR search reductions. This prevents any incorrect double-pruning.
+        if (g_search_settings.lmp
+            && is_quiet
+            && !is_tt_move
+            && !is_killer
+            && !pv_node
+            && !in_check
+            && !gives_check
+            && excluded_move == MOVE_NONE
+            && depth <= g_lmp_max_depth)
+        {
+            int lmp_threshold = LMP_MOVE_THRESHOLDS[std::min(depth, 16)];
+            if (quiet_moves_searched >= lmp_threshold) {
+                board.unmakeMove(m, undo);
+                continue;
+            }
+        }
+
+        if (is_quiet) {
+            quiet_moves_searched++;
         }
 
         moves_searched++;
@@ -589,7 +633,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
         // Principal Variation Search (PVS) & Late Move Reductions (LMR)
         if (g_search_settings.pvs && moves_searched > 1) {
-            if (g_search_settings.lmr && depth >= 3 && moves_searched > 4 && !m.isCapture() && !m.isPromotion() && !in_check && !is_in_check(board, board.get_side_to_move())) {
+            if (g_search_settings.lmr && depth >= 3 && moves_searched > 4 && is_quiet && !in_check && !gives_check) {
                 int reduction = 1;
                 if (moves_searched > 12) {
                     reduction = 2;
@@ -605,7 +649,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             }
         } else {
             // Normal alpha-beta search
-            if (g_search_settings.lmr && !g_search_settings.pvs && depth >= 3 && moves_searched > 4 && !m.isCapture() && !m.isPromotion() && !in_check && !is_in_check(board, board.get_side_to_move())) {
+            if (g_search_settings.lmr && !g_search_settings.pvs && depth >= 3 && moves_searched > 4 && is_quiet && !in_check && !gives_check) {
                 int reduction = 1;
                 if (moves_searched > 12) {
                     reduction = 2;

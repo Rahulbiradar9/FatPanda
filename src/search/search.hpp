@@ -73,10 +73,12 @@ struct SearchSettings {
     bool see = true;
     bool singular = true;
     bool iir = true;
+    bool lmp = true;
 };
 
 extern SearchSettings g_search_settings;
 extern int g_singular_margin;
+extern int g_lmp_max_depth;
 
 SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha = -INFINITY_SCORE, int beta = INFINITY_SCORE);
 

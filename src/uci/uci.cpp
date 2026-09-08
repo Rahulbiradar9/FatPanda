@@ -286,6 +286,19 @@ void parse_setoption(std::stringstream& ss) {
         } else if (option_value == "false" || option_value == "False" || option_value == "0") {
             g_search_settings.iir = false;
         }
+    } else if (option_name == "LMP" || option_name == "lmp" || option_name == "LateMovePruning") {
+        if (option_value == "true" || option_value == "True" || option_value == "1") {
+            g_search_settings.lmp = true;
+        } else if (option_value == "false" || option_value == "False" || option_value == "0") {
+            g_search_settings.lmp = false;
+        }
+    } else if (option_name == "LMPMaxDepth" || option_name == "lmpmaxdepth" || option_name == "LMP Max Depth") {
+        try {
+            int depth = std::stoi(option_value);
+            if (depth >= 1 && depth <= 16) {
+                g_lmp_max_depth = depth;
+            }
+        } catch (...) {}
     }
 }
 
@@ -322,6 +335,8 @@ void uci_loop() {
             std::cout << "option name SingularMargin type spin default 2 min 0 max 100\n";
             std::cout << "option name SingularExtension type check default true\n";
             std::cout << "option name IIR type check default true\n";
+            std::cout << "option name LMP type check default true\n";
+            std::cout << "option name LMPMaxDepth type spin default 8 min 1 max 16\n";
             std::cout << "uciok" << std::endl;
         } else if (command == "isready") {
             std::cout << "readyok" << std::endl;
