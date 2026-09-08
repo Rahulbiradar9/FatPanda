@@ -8,6 +8,8 @@ namespace ChessEngine {
 extern int g_search_overhead_ms;
 extern bool g_own_book;
 extern std::string g_book_file;
+extern bool g_ponder_enabled;
+extern std::atomic<bool> g_is_pondering;
 
 // Start the Universal Chess Interface (UCI) protocol communication loop.
 // Listens to commands from standard input and responds to standard output.
@@ -17,7 +19,9 @@ void uci_loop();
 Move parse_move(Board& board, const std::string& move_str);
 void parse_position(Board& board, std::stringstream& ss);
 void parse_go(Board& board, std::stringstream& ss);
+void parse_setoption(std::stringstream& ss);
 void join_search_thread();
+void handle_ponderhit();
 void parse_tune(std::stringstream& ss);
 void parse_datagen(std::stringstream& ss);
 void parse_bench(std::stringstream& ss);

@@ -84,3 +84,47 @@ TEST(UciTest, MultiPVSearch) {
     g_multipv = 1; // Reset to default
 }
 
+TEST(UciTest, PonderOptionToggle) {
+    std::stringstream ss1("name Ponder value false");
+    parse_setoption(ss1);
+    EXPECT_FALSE(g_ponder_enabled);
+
+    std::stringstream ss2("name Ponder value true");
+    parse_setoption(ss2);
+    EXPECT_TRUE(g_ponder_enabled);
+}
+
+TEST(UciTest, GoPonderAndPonderHit) {
+    Board board;
+    board.reset_to_start();
+    
+    // go ponder depth 10
+    std::stringstream ss("depth 10 ponder");
+    parse_go(board, ss);
+    
+    EXPECT_TRUE(g_is_pondering.load());
+    EXPECT_EQ(g_time_limit_soft_ms, -1);
+    EXPECT_EQ(g_time_limit_hard_ms, -1);
+    
+    // Simulate ponderhit
+    handle_ponderhit();
+    EXPECT_FALSE(g_is_pondering.load());
+    
+    join_search_thread();
+}
+
+TEST(UciTest, GoPonderAndStop) {
+    Board board;
+    board.reset_to_start();
+    
+    std::stringstream ss("depth 10 ponder");
+    parse_go(board, ss);
+    
+    EXPECT_TRUE(g_is_pondering.load());
+    
+    // Simulate stop command
+    join_search_thread();
+    EXPECT_FALSE(g_is_pondering.load());
+}
+
+

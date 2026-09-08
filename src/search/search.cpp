@@ -1281,6 +1281,8 @@ SearchResult search(Board& board, int max_depth) {
         }
     }
 
+    g_stop_search.store(false);
+
     return result;
 }
 

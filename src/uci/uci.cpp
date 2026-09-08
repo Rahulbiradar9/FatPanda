@@ -24,25 +24,47 @@ int g_search_overhead_ms = 20;
 bool g_own_book = true;
 std::string g_book_file = "book.bin";
 bool g_chess960 = false;
+bool g_ponder_enabled = true;
+std::atomic<bool> g_is_pondering{false};
 
 namespace {
 
 std::thread g_search_thread;
+int g_ponder_saved_soft_limit = -1;
+int g_ponder_saved_hard_limit = -1;
 
-void start_search(Board board, int depth, int soft_limit_ms, int hard_limit_ms) {
+void start_search(Board board, int depth, int soft_limit_ms, int hard_limit_ms, bool is_ponder = false) {
     if (g_search_thread.joinable()) {
         g_stop_search.store(true);
+        g_is_pondering.store(false);
         g_search_thread.join();
     }
     
     g_stop_search.store(false);
+    g_is_pondering.store(is_ponder);
+    g_ponder_saved_soft_limit = soft_limit_ms;
+    g_ponder_saved_hard_limit = hard_limit_ms;
     g_start_time = std::chrono::steady_clock::now();
-    g_time_limit_soft_ms = soft_limit_ms;
-    g_time_limit_hard_ms = hard_limit_ms;
+    g_time_limit_soft_ms = is_ponder ? -1 : soft_limit_ms;
+    g_time_limit_hard_ms = is_ponder ? -1 : hard_limit_ms;
     
     g_search_thread = std::thread([board, depth]() mutable {
         SearchResult result = search(board, depth);
-        std::cout << "bestmove " << result.best_move.to_string() << std::endl;
+        
+        while (g_is_pondering.load() && !g_stop_search.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        
+        std::string bestmove_str = "bestmove ";
+        if (!result.best_move.is_none()) {
+            bestmove_str += result.best_move.to_string();
+            if (g_ponder_enabled && result.pv.size() >= 2 && !result.pv[1].is_none()) {
+                bestmove_str += " ponder " + result.pv[1].to_string();
+            }
+        } else {
+            bestmove_str += "0000";
+        }
+        std::cout << bestmove_str << std::endl;
     });
 }
 
@@ -50,8 +72,19 @@ void start_search(Board board, int depth, int soft_limit_ms, int hard_limit_ms) 
 
 void join_search_thread() {
     g_stop_search.store(true);
+    g_is_pondering.store(false);
     if (g_search_thread.joinable()) {
         g_search_thread.join();
+    }
+    g_stop_search.store(false);
+}
+
+void handle_ponderhit() {
+    if (g_is_pondering.load()) {
+        g_start_time = std::chrono::steady_clock::now();
+        g_time_limit_soft_ms = g_ponder_saved_soft_limit;
+        g_time_limit_hard_ms = g_ponder_saved_hard_limit;
+        g_is_pondering.store(false);
     }
 }
 
@@ -145,14 +178,6 @@ void parse_position(Board& board, std::stringstream& ss) {
 }
 
 void parse_go(Board& board, std::stringstream& ss) {
-    if (g_own_book) {
-        Move book_move = lookup_book_move(board, g_book_file);
-        if (book_move != MOVE_NONE) {
-            std::cout << "bestmove " << book_move.to_string() << std::endl;
-            return;
-        }
-    }
-
     int depth = 64; // Default max depth
     int soft_limit = -1;
     int hard_limit = -1;
@@ -160,12 +185,15 @@ void parse_go(Board& board, std::stringstream& ss) {
     std::string arg;
     int wtime = -1, btime = -1, winc = 0, binc = 0, movetime = -1, movestogo = -1;
     bool infinite = false;
+    bool is_ponder = false;
     
     while (ss >> arg) {
         if (arg == "depth") {
             ss >> depth;
         } else if (arg == "infinite") {
             infinite = true;
+        } else if (arg == "ponder") {
+            is_ponder = true;
         } else if (arg == "movetime") {
             ss >> movetime;
         } else if (arg == "wtime") {
@@ -178,6 +206,14 @@ void parse_go(Board& board, std::stringstream& ss) {
             ss >> binc;
         } else if (arg == "movestogo") {
             ss >> movestogo;
+        }
+    }
+    
+    if (g_own_book && !is_ponder) {
+        Move book_move = lookup_book_move(board, g_book_file);
+        if (book_move != MOVE_NONE) {
+            std::cout << "bestmove " << book_move.to_string() << std::endl;
+            return;
         }
     }
     
@@ -207,7 +243,7 @@ void parse_go(Board& board, std::stringstream& ss) {
         }
     }
     
-    start_search(board, depth, soft_limit, hard_limit);
+    start_search(board, depth, soft_limit, hard_limit, is_ponder);
 }
 
 void parse_setoption(std::stringstream& ss) {
@@ -359,6 +395,12 @@ void parse_setoption(std::stringstream& ss) {
         } else if (option_value == "false" || option_value == "False" || option_value == "0") {
             g_chess960 = false;
         }
+    } else if (option_name == "Ponder" || option_name == "ponder") {
+        if (option_value == "true" || option_value == "True" || option_value == "1") {
+            g_ponder_enabled = true;
+        } else if (option_value == "false" || option_value == "False" || option_value == "0") {
+            g_ponder_enabled = false;
+        }
     }
 }
 
@@ -393,6 +435,7 @@ void uci_loop() {
             std::cout << "option name Use NNUE type check default false\n";
             std::cout << "option name EvalFile type string default nn.nnue\n";
             std::cout << "option name UCI_Chess960 type check default false\n";
+            std::cout << "option name Ponder type check default true\n";
             std::cout << "option name MultiPV type spin default 1 min 1 max 256\n";
             std::cout << "option name SingularMargin type spin default 2 min 0 max 100\n";
             std::cout << "option name SingularExtension type check default true\n";
@@ -408,17 +451,18 @@ void uci_loop() {
         } else if (command == "isready") {
             std::cout << "readyok" << std::endl;
         } else if (command == "ucinewgame") {
+            join_search_thread();
             g_tt.clear();
             board.reset_to_start();
         } else if (command == "position") {
+            join_search_thread();
             parse_position(board, ss);
         } else if (command == "go") {
             parse_go(board, ss);
         } else if (command == "stop") {
-            g_stop_search.store(true);
-            if (g_search_thread.joinable()) {
-                g_search_thread.join();
-            }
+            join_search_thread();
+        } else if (command == "ponderhit") {
+            handle_ponderhit();
         } else if (command == "setoption") {
             parse_setoption(ss);
         } else if (command == "tune") {
@@ -428,10 +472,7 @@ void uci_loop() {
         } else if (command == "bench") {
             parse_bench(ss);
         } else if (command == "quit") {
-            g_stop_search.store(true);
-            if (g_search_thread.joinable()) {
-                g_search_thread.join();
-            }
+            join_search_thread();
             break;
         } else if (command == "print" || command == "d") {
             board.print();
