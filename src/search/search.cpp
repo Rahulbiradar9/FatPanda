@@ -21,6 +21,7 @@ int g_time_limit_hard_ms = -1;
 SearchSettings g_search_settings;
 int g_singular_margin = 2;
 int g_lmp_max_depth = 8;
+int g_probcut_margin = 100;
 
 namespace {
 
@@ -32,6 +33,9 @@ constexpr int HISTORY_WEIGHT_TOTAL = HISTORY_WEIGHT_MAIN + HISTORY_WEIGHT_CONT1 
 // Internal Iterative Reduction (IIR) configuration
 constexpr int IIR_MIN_DEPTH = 4;
 constexpr int IIR_REDUCTION = 1;
+
+// ProbCut configuration
+constexpr int PROBCUT_MIN_DEPTH = 5;
 
 // Late Move Pruning (LMP) move-count thresholds by depth (1..16) based on (d*d + 2*d)/2
 constexpr std::array<int, 17> LMP_MOVE_THRESHOLDS = {
@@ -501,7 +505,68 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         return quiescence(board, alpha, beta, ply, info);
     }
 
+    bool pv_node = (beta - alpha > 1);
+
     Move tt_move = (tt_hit && excluded_move == MOVE_NONE) ? tt_entry.move : MOVE_NONE;
+
+    // ProbCut (Probabilistic Cutoff):
+    // At non-PV nodes with sufficient depth (depth >= 5), when not in check and away from mate bounds,
+    // test if a tactical capture/promotion can quickly refute the position against an elevated beta window:
+    // probCutBeta = beta + probCutMargin.
+    // If a fast, shallow search at (depth - 4) beats probCutBeta, we verify it with a deeper search at (depth - 3).
+    // If verification succeeds, we return probCutBeta as a fail-high cut immediately.
+    //
+    // Note on Interaction with Check Extensions:
+    // - Check extensions prolong forced checking sequences to avoid tactical blunders or uncover deep mates.
+    // - If ProbCut were applied carelessly to checking lines or near-mate scores, a shallow search (depth - 4)
+    //   could easily miss opponent counter-check sequences or perpetual checks that a full check-extended search
+    //   would resolve.
+    // - To prevent this hazard, ProbCut is strictly gated by:
+    //   1. Guarding against in-check positions (!in_check)
+    //   2. Skipping near-mate score bounds (std::abs(beta) < MATE_SCORE - MAX_PLY)
+    //   3. Skipping when a deep TT entry already proved the score falls below probCutBeta
+    //   4. Requiring a 2-stage verification search (depth - 4 followed by depth - 3 verification) before cutting off.
+    if (g_search_settings.probcut
+        && !pv_node
+        && depth >= PROBCUT_MIN_DEPTH
+        && !in_check
+        && excluded_move == MOVE_NONE
+        && std::abs(beta) < MATE_SCORE - MAX_PLY)
+    {
+        int probcut_beta = beta + g_probcut_margin;
+
+        // Skip ProbCut if a deep enough TT entry already proved the score is below probcut_beta
+        bool skip_probcut = (tt_hit && tt_entry.depth >= depth - 3 && tt_entry.score < probcut_beta);
+
+        if (!skip_probcut) {
+            std::vector<Move> noisy_moves = generate_legal_captures(board);
+            order_moves(board, noisy_moves, tt_move, ply, info, prev1, prev2);
+
+            for (Move m : noisy_moves) {
+                Piece moved_p = board.get_piece(m.get_from());
+                Square to_sq = m.get_to();
+
+                UndoState undo;
+                if (!board.makeMove(m, undo)) {
+                    continue;
+                }
+
+                // 1. Fast shallow search at depth - 4 with null window around probcut_beta
+                int score = -search_alphabeta(board, depth - 4, -probcut_beta, -probcut_beta + 1, ply + 1, info, MOVE_NONE, {moved_p, to_sq}, prev1);
+
+                // 2. If it exceeds probcut_beta, run verification search at depth - 3
+                if (score >= probcut_beta) {
+                    score = -search_alphabeta(board, depth - 3, -probcut_beta, -probcut_beta + 1, ply + 1, info, MOVE_NONE, {moved_p, to_sq}, prev1);
+                }
+
+                board.unmakeMove(m, undo);
+
+                if (score >= probcut_beta) {
+                    return probcut_beta; // Fail-high cutoff
+                }
+            }
+        }
+    }
 
     // Internal Iterative Reduction (IIR):
     // Reasoning difference between traditional IID and modern IIR:
@@ -561,8 +626,6 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
     int best_score = -INFINITY_SCORE;
     Move best_move = MOVE_NONE;
-
-    bool pv_node = (beta - alpha > 1);
 
     bool futility_pruning = false;
     if (g_search_settings.futility && depth == 1 && !in_check && (evaluate(board) + 150 < alpha)) {

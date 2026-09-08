@@ -299,6 +299,19 @@ void parse_setoption(std::stringstream& ss) {
                 g_lmp_max_depth = depth;
             }
         } catch (...) {}
+    } else if (option_name == "ProbCut" || option_name == "probcut") {
+        if (option_value == "true" || option_value == "True" || option_value == "1") {
+            g_search_settings.probcut = true;
+        } else if (option_value == "false" || option_value == "False" || option_value == "0") {
+            g_search_settings.probcut = false;
+        }
+    } else if (option_name == "ProbCutMargin" || option_name == "probcutmargin" || option_name == "ProbCut Margin") {
+        try {
+            int margin = std::stoi(option_value);
+            if (margin >= 0) {
+                g_probcut_margin = margin;
+            }
+        } catch (...) {}
     }
 }
 
@@ -337,6 +350,8 @@ void uci_loop() {
             std::cout << "option name IIR type check default true\n";
             std::cout << "option name LMP type check default true\n";
             std::cout << "option name LMPMaxDepth type spin default 8 min 1 max 16\n";
+            std::cout << "option name ProbCut type check default true\n";
+            std::cout << "option name ProbCutMargin type spin default 100 min 10 max 500\n";
             std::cout << "uciok" << std::endl;
         } else if (command == "isready") {
             std::cout << "readyok" << std::endl;

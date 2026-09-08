@@ -97,6 +97,7 @@ TEST(BenchmarkTest, SearchOptimizationsIndependentBenchmark) {
     SearchSettings no_se  = base_settings; no_se.singular = false;
     SearchSettings no_iir = base_settings; no_iir.iir = false;
     SearchSettings no_lmp = base_settings; no_lmp.lmp = false;
+    SearchSettings no_probcut = base_settings; no_probcut.probcut = false;
 
     std::vector<BenchmarkRun> runs = {
         {"All Enabled (Baseline)", base_settings},
@@ -109,7 +110,8 @@ TEST(BenchmarkTest, SearchOptimizationsIndependentBenchmark) {
         {"Without Static Exchange Evaluation", no_see},
         {"Without Singular Extensions", no_se},
         {"Without Internal Iterative Reductions", no_iir},
-        {"Without Late Move Pruning", no_lmp}
+        {"Without Late Move Pruning", no_lmp},
+        {"Without ProbCut", no_probcut}
     };
 
     std::cout << "\n=========================================================================\n"
