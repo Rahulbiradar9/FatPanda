@@ -19,8 +19,11 @@ int g_time_limit_soft_ms = -1;
 int g_time_limit_hard_ms = -1;
 
 SearchSettings g_search_settings;
+int g_singular_margin = 2;
 
 namespace {
+
+int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info, Move excluded_move = MOVE_NONE);
 
 // Helper to determine piece values for move ordering (MVV-LVA)
 int get_piece_value(PieceType type) {
@@ -364,7 +367,7 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
 }
 
 // Recursive Negamax with Alpha-Beta Pruning
-int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info) {
+int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info, Move excluded_move) {
     info.nodes_searched++;
 
     // Check time/stop constraints every 2048 nodes
@@ -398,8 +401,8 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         return 0;
     }
 
-    // Optional Syzygy WDL probing
-    if (g_syzygy_enabled && syzygy_is_loaded()) {
+    // Optional Syzygy WDL probing (skip in singular search)
+    if (excluded_move == MOVE_NONE && g_syzygy_enabled && syzygy_is_loaded()) {
         int pieces_count = 0;
         for (int p = 0; p < 12; ++p) {
             pieces_count += count_bits(board.get_piece_bitboard(static_cast<Piece>(p)));
@@ -418,7 +421,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     TTEntry tt_entry;
     info.tt_lookups++;
     bool tt_hit = g_tt.probe(board.get_hash_key(), ply, tt_entry);
-    if (tt_hit) {
+    if (tt_hit && excluded_move == MOVE_NONE) {
         info.tt_hits++;
         if (tt_entry.depth >= depth) {
             if (tt_entry.flags == TT_EXACT) {
@@ -434,7 +437,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     bool in_check = is_in_check(board, board.get_side_to_move());
 
     // Reverse Futility Pruning (RFP)
-    if (g_search_settings.rfp && depth <= 3 && !in_check && ply > 0) {
+    if (excluded_move == MOVE_NONE && g_search_settings.rfp && depth <= 3 && !in_check && ply > 0) {
         int margin = depth * 120;
         if (evaluate(board) - margin >= beta) {
             return beta; // Fail high
@@ -442,7 +445,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     }
 
     // Null Move Pruning (NMP)
-    if (g_search_settings.nmp && depth >= 3 && !in_check && ply > 0) {
+    if (excluded_move == MOVE_NONE && g_search_settings.nmp && depth >= 3 && !in_check && ply > 0) {
         Color us = board.get_side_to_move();
         Bitboard our_non_pawns = board.get_occupancy(us) 
                                 ^ board.get_piece_bitboard(make_piece(us, PieceType::Pawn))
@@ -478,6 +481,30 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     Move tt_move = tt_hit ? tt_entry.move : MOVE_NONE;
     order_moves(board, moves, tt_move, ply, info);
 
+    // Singular Extension:
+    // Before searching the TT move, run a reduced-depth null-window search excluding the TT move
+    // to test if other moves fail low against (ttScore - singularMargin).
+    int extension = 0;
+    if (g_search_settings.singular
+        && excluded_move == MOVE_NONE
+        && depth >= 8
+        && tt_hit
+        && tt_move != MOVE_NONE
+        && (tt_entry.flags == TT_EXACT || tt_entry.flags == TT_BETA)
+        && tt_entry.depth >= depth - 3
+        && std::abs(tt_entry.score) < MATE_SCORE - MAX_PLY)
+    {
+        int singular_margin = g_singular_margin * depth;
+        int singular_beta = tt_entry.score - singular_margin;
+        int singular_depth = (depth - 1) / 2;
+
+        int singular_score = search_alphabeta(board, singular_depth, singular_beta - 1, singular_beta, ply, info, tt_move);
+
+        if (singular_score < singular_beta) {
+            extension = 1;
+        }
+    }
+
     int best_score = -INFINITY_SCORE;
     Move best_move = MOVE_NONE;
 
@@ -488,7 +515,11 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
     int moves_searched = 0;
     for (Move m : moves) {
-        if (futility_pruning && !m.isCapture() && !m.isPromotion()) {
+        if (m == excluded_move) {
+            continue;
+        }
+
+        if (futility_pruning && !m.isCapture() && !m.isPromotion() && excluded_move == MOVE_NONE) {
             continue; // Prune quiet move
         }
 
@@ -498,6 +529,8 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         }
 
         moves_searched++;
+        int ext = (m == tt_move) ? extension : 0;
+        int new_depth = depth - 1 + ext;
         int score;
 
         // Principal Variation Search (PVS) & Late Move Reductions (LMR)
@@ -507,14 +540,14 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
                 if (moves_searched > 12) {
                     reduction = 2;
                 }
-                score = -search_alphabeta(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth - reduction, -alpha - 1, -alpha, ply + 1, info);
             } else {
-                score = -search_alphabeta(board, depth - 1, -alpha - 1, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth, -alpha - 1, -alpha, ply + 1, info);
             }
 
             if (score > alpha && score < beta) {
                 // Re-search with full window
-                score = -search_alphabeta(board, depth - 1, -beta, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info);
             }
         } else {
             // Normal alpha-beta search
@@ -523,12 +556,12 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
                 if (moves_searched > 12) {
                     reduction = 2;
                 }
-                score = -search_alphabeta(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth - reduction, -alpha - 1, -alpha, ply + 1, info);
                 if (score > alpha) {
-                    score = -search_alphabeta(board, depth - 1, -beta, -alpha, ply + 1, info);
+                    score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info);
                 }
             } else {
-                score = -search_alphabeta(board, depth - 1, -beta, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info);
             }
         }
 
@@ -542,17 +575,19 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         if (score > alpha) {
             alpha = score;
             
-            // Update Triangular PV Table
-            info.pv_table[ply][ply] = m;
-            for (int j = ply + 1; j < info.pv_length[ply + 1]; ++j) {
-                info.pv_table[ply][j] = info.pv_table[ply + 1][j];
+            // Update Triangular PV Table (only for regular search)
+            if (excluded_move == MOVE_NONE) {
+                info.pv_table[ply][ply] = m;
+                for (int j = ply + 1; j < info.pv_length[ply + 1]; ++j) {
+                    info.pv_table[ply][j] = info.pv_table[ply + 1][j];
+                }
+                info.pv_length[ply] = info.pv_length[ply + 1];
             }
-            info.pv_length[ply] = info.pv_length[ply + 1];
         }
 
         if (alpha >= beta) {
             // Cutoff: if it's a quiet move, record killer and history heuristic
-            if (!m.isCapture() && !m.isPromotion() && ply < MAX_PLY) {
+            if (excluded_move == MOVE_NONE && !m.isCapture() && !m.isPromotion() && ply < MAX_PLY) {
                 // Update killer moves
                 info.killer_moves[1][ply] = info.killer_moves[0][ply];
                 info.killer_moves[0][ply] = m;
@@ -578,14 +613,22 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         }
     }
 
-    // TT record
-    uint8_t flag = TT_ALPHA;
-    if (best_score >= beta) {
-        flag = TT_BETA;
-    } else if (best_score > original_alpha) {
-        flag = TT_EXACT;
+    if (moves_searched == 0) {
+        if (excluded_move != MOVE_NONE) {
+            return alpha;
+        }
     }
-    g_tt.record(board.get_hash_key(), best_move, best_score, depth, flag, ply);
+
+    // TT record (only in regular search, do not corrupt TT with excluded move search)
+    if (excluded_move == MOVE_NONE) {
+        uint8_t flag = TT_ALPHA;
+        if (best_score >= beta) {
+            flag = TT_BETA;
+        } else if (best_score > original_alpha) {
+            flag = TT_EXACT;
+        }
+        g_tt.record(board.get_hash_key(), best_move, best_score, depth, flag, ply);
+    }
 
     return best_score;
 }

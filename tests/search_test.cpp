@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "board/board.hpp"
+#include "board/perft.hpp"
 #include "search/search.hpp"
 #include "hash/tt.hpp"
 
@@ -145,5 +146,52 @@ TEST(SearchTest, DetectsThreefoldRepetitionDraw) {
     // which is much better than playing a normal move while down a Queen (-900+ score).
     EXPECT_EQ(result.best_move.to_string(), "f3g1");
     EXPECT_EQ(result.score, 0);
+}
+
+// Test Singular Extensions toggle and search consistency
+TEST(SearchTest, SingularExtensionsExecution) {
+    Board board;
+    ASSERT_TRUE(board.load_from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"));
+
+    // 1. Search with Singular Extensions enabled
+    g_search_settings.singular = true;
+    g_tt.clear();
+    SearchResult res_se = search(board, 8);
+    EXPECT_FALSE(res_se.best_move.is_none());
+    EXPECT_GT(res_se.nodes_searched, 0);
+
+    // 2. Search with Singular Extensions disabled
+    g_search_settings.singular = false;
+    g_tt.clear();
+    SearchResult res_no_se = search(board, 8);
+    EXPECT_FALSE(res_no_se.best_move.is_none());
+    EXPECT_GT(res_no_se.nodes_searched, 0);
+
+    // Restore default
+    g_search_settings.singular = true;
+}
+
+// Test that perft (move generation accuracy) is 100% unaffected by search and singular extensions
+TEST(SearchTest, PerftUnaffectedBySearchSettings) {
+    Board board;
+    board.reset_to_start();
+
+    // Standard starting position perft depth 4 is known to be exactly 197,281 nodes
+    uint64_t p1 = runPerft(board, 4);
+    EXPECT_EQ(p1, 197281ULL);
+
+    // Modify search settings
+    g_search_settings.singular = false;
+    uint64_t p2 = runPerft(board, 4);
+    EXPECT_EQ(p2, 197281ULL);
+
+    g_search_settings.singular = true;
+    uint64_t p3 = runPerft(board, 4);
+    EXPECT_EQ(p3, 197281ULL);
+
+    // Kiwipete position perft depth 3 is known to be exactly 97,862 nodes
+    ASSERT_TRUE(board.load_from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"));
+    uint64_t p_kiwi = runPerft(board, 3);
+    EXPECT_EQ(p_kiwi, 97862ULL);
 }
 

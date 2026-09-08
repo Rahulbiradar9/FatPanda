@@ -64,9 +64,11 @@ struct SearchSettings {
     bool futility = true;
     bool rfp = true;
     bool see = true;
+    bool singular = true;
 };
 
 extern SearchSettings g_search_settings;
+extern int g_singular_margin;
 
 SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha = -INFINITY_SCORE, int beta = INFINITY_SCORE);
 

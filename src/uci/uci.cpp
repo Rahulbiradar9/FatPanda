@@ -267,6 +267,19 @@ void parse_setoption(std::stringstream& ss) {
             g_nnue_file = option_value;
             nnue_load_file(g_nnue_file);
         }
+    } else if (option_name == "SingularMargin" || option_name == "singularmargin" || option_name == "Singular Margin" || option_name == "singular_margin") {
+        try {
+            int margin = std::stoi(option_value);
+            if (margin >= 0) {
+                g_singular_margin = margin;
+            }
+        } catch (...) {}
+    } else if (option_name == "SingularExtension" || option_name == "singularextension" || option_name == "Singular Extension") {
+        if (option_value == "true" || option_value == "True" || option_value == "1") {
+            g_search_settings.singular = true;
+        } else if (option_value == "false" || option_value == "False" || option_value == "0") {
+            g_search_settings.singular = false;
+        }
     }
 }
 
@@ -300,6 +313,8 @@ void uci_loop() {
             std::cout << "option name Threads type spin default 1 min 1 max 128\n";
             std::cout << "option name Use NNUE type check default false\n";
             std::cout << "option name EvalFile type string default nn.nnue\n";
+            std::cout << "option name SingularMargin type spin default 2 min 0 max 100\n";
+            std::cout << "option name SingularExtension type check default true\n";
             std::cout << "uciok" << std::endl;
         } else if (command == "isready") {
             std::cout << "readyok" << std::endl;
