@@ -8,6 +8,24 @@
 #include "uci/uci.hpp"
 
 int main(int argc, char* argv[]) {
+    if (argc > 1) {
+        std::string arg = argv[1];
+        if (arg == "--version" || arg == "-v" || arg == "-version" || arg == "version") {
+            std::cout << "FatPanda " << ChessEngine::get_version_string() << std::endl;
+            return 0;
+        }
+        if (arg == "--bench" || arg == "-bench" || arg == "bench") {
+            int depth = 13;
+            int threads = 1;
+            int hash_mb = 16;
+            if (argc > 2) depth = std::stoi(argv[2]);
+            if (argc > 3) threads = std::stoi(argv[3]);
+            if (argc > 4) hash_mb = std::stoi(argv[4]);
+            ChessEngine::run_benchmark(depth, threads, hash_mb);
+            return 0;
+        }
+    }
+
     bool run_demo = false;
     if (argc > 1) {
         std::string arg = argv[1];

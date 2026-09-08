@@ -389,6 +389,8 @@ void uci_loop() {
             parse_tune(ss);
         } else if (command == "datagen") {
             parse_datagen(ss);
+        } else if (command == "bench") {
+            parse_bench(ss);
         } else if (command == "quit") {
             g_stop_search.store(true);
             if (g_search_thread.joinable()) {
@@ -659,6 +661,115 @@ void parse_datagen(std::stringstream& ss) {
 
     std::cout << "info string Datagen complete. Total valid positions: " << total_positions 
               << ", Filtered out: " << total_filtered_out << std::endl;
+}
+
+const std::vector<std::string> BENCHMARK_POSITIONS = {
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+    "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+    "rnbqkb1r/pp1p1ppp/2p5/4P3/2B5/8/PPP1NnPP/RNBQK2R w KQkq - 0 6",
+    "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+    "rnbqk1nr/ppp2ppp/4p3/3p4/1bPP4/5N2/PP2PPPP/RNBQKB1R w KQkq - 2 4",
+    "r1bqkb1r/pp3ppp/2n1pn2/2pp4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 6",
+    "r1bq1rk1/ppp2ppp/2np1n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 7",
+    "r1b1kb1r/pp1p1ppp/1q2pn2/2p5/3nP3/1PNP1N2/PBP2PPP/R2QKB1R w KQkq - 1 7",
+    "r2q1rk1/ppp1bppp/2n1bn2/3p4/3P4/2NBPN2/PP3PPP/R1BQ1RK1 w - - 0 9",
+    "r1b2rk1/1p2qppp/p1np1n2/4p3/2P5/2N1PN2/PP2BPPP/R2Q1RK1 w - - 0 11",
+    "r2q1rk1/1pp2ppp/p1np1n2/4p1B1/2B1P1b1/2NP1N2/PPP2PPP/R2Q1RK1 w - - 0 8",
+    "2r2rk1/1bqnbppp/pp1ppn2/8/2PNP3/1PN1BP2/P3B1PP/2RQ1R1K w - - 0 14",
+    "r1b2rk1/ppqn1ppp/2p1pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQ1RK1 w - - 0 9",
+    "r1bqk2r/pp2bppp/2n1pn2/2pp4/2PP4/2N1PN2/PP2BPPP/R1BQK2R w KQkq - 0 7",
+    "r2q1rk1/pb1nbppp/1p1ppn2/8/2PP4/2N1PN2/PP1BBPPP/R2Q1RK1 w - - 0 10",
+    "r1b1k2r/ppp1qppp/2np1n2/4p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 0 7",
+    "r1bq1rk1/pp2ppbp/2np1np1/8/3NP3/2N1BP2/PPP3PP/2KR1B1R w - - 1 10",
+    "r2qk2r/pp1n1ppp/2pbpn2/3p4/2PP4/1PN1PN2/PB3PPP/R2QKB1R w KQkq - 1 8",
+    "r1b2rk1/pp1n1ppp/1q1bpn2/3p4/2PP4/1PNBPN2/PB3PPP/R2QK2R w KQ - 1 9",
+    "r1bq1rk1/pp2bppp/2n1pn2/3p4/2PP4/2NB1N2/PP3PPP/R1BQK2R w KQ - 0 8",
+    "r1b1kb1r/pp2qppp/2n1pn2/2pp4/2PP4/2N1PN2/PP2BPPP/R1BQK2R w KQkq - 0 7",
+    "r2q1rk1/pp1bbppp/2n1pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQ1RK1 w - - 0 9",
+    "r1bq1rk1/1p2bppp/p1np1n2/4p3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 w - - 0 10",
+    "r1bq1rk1/pp2ppbp/2np1np1/8/3NP3/2N1BP2/PPP3PP/R2QKB1R w KQ - 1 8",
+    "2kr3r/pp1n1ppp/2p1pn2/8/1b1P4/2N1BN2/PPP2PPP/2KR3R w - - 0 12",
+    "r1b2rk1/2q1bppp/p1n1pn2/1p1p4/2PN4/1PN1P3/PB2BPPP/R2Q1RK1 w - - 0 12",
+    "r4rk1/ppqn1ppp/2pbpn2/3p4/2PP4/1PN1PN2/PB2BPPP/R2Q1RK1 w - - 0 10",
+    "r1b1r1k1/pp3ppp/2nq1n2/3p4/3P4/1B3N2/PP1N1PPP/R2QR1K1 w - - 0 13",
+    "r1b2rk1/pp1nqppp/2p1pn2/3p4/2PP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+    "r1b1r1k1/pp3ppp/2n2n2/3p4/3P4/2NB1N2/PP3PPP/R2QR1K1 w - - 0 12",
+    "r2q1rk1/1pp1bppp/p1n1bn2/3p2B1/3P4/2NBPN2/PP3PPP/R2Q1RK1 w - - 0 10",
+    "r1bq1rk1/pp2bppp/2n1pn2/3p4/2PP4/2NB1N2/PP2QPPP/R1B2RK1 w - - 0 9",
+    "r1b2rk1/ppqn1ppp/2p1pn2/3p4/2PP4/1PNBPN2/P4PPP/R1BQ1RK1 w - - 0 10",
+    "8/5k2/8/8/8/8/1R6/2K5 w - - 0 1",
+    "8/8/5k2/8/8/5K2/1Q6/7q w - - 0 1",
+    "8/5k2/8/p1p1p1p1/P1P1P1P1/8/5K2/8 w - - 0 1",
+    "8/8/8/4k3/8/8/3R1K2/r7 w - - 0 1",
+    "8/8/8/4k3/8/8/5K2/4BN2 w - - 0 1",
+    "8/6k1/6p1/5p1p/7P/5QP1/5PK1/8 w - - 0 1",
+    "8/5k2/1b6/8/8/1B6/5K2/8 w - - 0 1",
+    "8/5k2/4n3/8/8/4N3/5K2/8 w - - 0 1",
+    "r1bqkb1r/pppp1ppp/2n5/4p3/2B1n3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4",
+    "r1b1k2r/pppp1Npp/8/4p3/2Bn3q/6n1/PPPP3P/RNBQ2KR b kq - 1 10"
+};
+
+void run_benchmark(int depth, int threads, int hash_mb) {
+    if (depth <= 0) depth = 13;
+    if (threads <= 0) threads = 1;
+    if (hash_mb <= 0) hash_mb = 16;
+
+    int prev_threads = g_num_threads;
+    bool prev_book = g_own_book;
+    g_num_threads = threads;
+    g_own_book = false;
+
+    g_tt.resize(static_cast<size_t>(hash_mb));
+    g_tt.clear();
+
+    uint64_t total_nodes = 0;
+    auto bench_start = std::chrono::steady_clock::now();
+
+    for (size_t i = 0; i < BENCHMARK_POSITIONS.size(); ++i) {
+        Board board;
+        board.load_from_fen(BENCHMARK_POSITIONS[i]);
+        g_tt.clear();
+        g_stop_search.store(false);
+        g_time_limit_soft_ms = -1;
+        g_time_limit_hard_ms = -1;
+
+        std::cout << "\nPosition [" << (i + 1) << "/" << BENCHMARK_POSITIONS.size() << "]: " 
+                  << BENCHMARK_POSITIONS[i] << std::endl;
+
+        SearchResult res = search(board, depth);
+        total_nodes += res.nodes_searched;
+    }
+
+    auto bench_end = std::chrono::steady_clock::now();
+    auto total_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(bench_end - bench_start).count();
+    if (total_time_ms <= 0) total_time_ms = 1;
+
+    uint64_t total_nps = (total_nodes * 1000ULL) / static_cast<uint64_t>(total_time_ms);
+
+    std::cout << "\n===========================\n";
+    std::cout << "Total time (ms) : " << total_time_ms << "\n";
+    std::cout << "Nodes searched  : " << total_nodes << "\n";
+    std::cout << "Nodes/second    : " << total_nps << "\n";
+    std::cout << total_nodes << " nodes " << total_nps << " nps\n" << std::endl;
+
+    g_num_threads = prev_threads;
+    g_own_book = prev_book;
+}
+
+void parse_bench(std::stringstream& ss) {
+    int depth = 13;
+    int threads = 1;
+    int hash_mb = 16;
+
+    if (ss >> depth) {
+        if (ss >> threads) {
+            ss >> hash_mb;
+        }
+    }
+
+    run_benchmark(depth, threads, hash_mb);
 }
 
 } // namespace ChessEngine

@@ -20,5 +20,7 @@ void parse_go(Board& board, std::stringstream& ss);
 void join_search_thread();
 void parse_tune(std::stringstream& ss);
 void parse_datagen(std::stringstream& ss);
+void parse_bench(std::stringstream& ss);
+void run_benchmark(int depth = 13, int threads = 1, int hash_mb = 16);
 
 } // namespace ChessEngine

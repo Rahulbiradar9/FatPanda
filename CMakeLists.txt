@@ -9,6 +9,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Enable testing globally
 enable_testing()
 
+# Extract git commit hash for versioning and OpenBench determinism
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT GIT_COMMIT_HASH)
+    set(GIT_COMMIT_HASH "799ee98")
+endif()
+add_compile_definitions(GIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
+
 # Define the modular Chess Engine Library
 add_library(FatPandaLib STATIC
     src/utils/version.cpp
