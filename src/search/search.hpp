@@ -22,6 +22,11 @@ constexpr int MATE_SCORE = 30000;
 constexpr int INFINITY_SCORE = 50000;
 constexpr int MAX_PLY = 64;
 
+struct MoveContext {
+    Piece piece = Piece::None;
+    Square to = Square::None;
+};
+
 // Struct to track stats and context during a search
 struct SearchInfo {
     uint64_t nodes_searched = 0;
@@ -32,6 +37,8 @@ struct SearchInfo {
     int pv_length[MAX_PLY] = {};
     Move killer_moves[2][MAX_PLY] = {};
     int history_moves[12][64] = {};
+    int cont_history_1ply[12][64][12][64] = {};
+    int cont_history_2ply[12][64][12][64] = {};
 };
 
 // Struct containing the result of a search

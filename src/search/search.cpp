@@ -23,7 +23,12 @@ int g_singular_margin = 2;
 
 namespace {
 
-int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info, Move excluded_move = MOVE_NONE);
+constexpr int HISTORY_WEIGHT_MAIN = 2;
+constexpr int HISTORY_WEIGHT_CONT1 = 2;
+constexpr int HISTORY_WEIGHT_CONT2 = 1;
+constexpr int HISTORY_WEIGHT_TOTAL = HISTORY_WEIGHT_MAIN + HISTORY_WEIGHT_CONT1 + HISTORY_WEIGHT_CONT2;
+
+int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info, Move excluded_move = MOVE_NONE, MoveContext prev1 = {}, MoveContext prev2 = {});
 
 // Helper to determine piece values for move ordering (MVV-LVA)
 int get_piece_value(PieceType type) {
@@ -170,7 +175,7 @@ int see(const Board& board, Move move) {
 
 // Assigns a heuristic score to a move to assist in move ordering.
 // PV moves, promotions, captures, killers, and histories are prioritized.
-int score_move(const Board& board, Move move, Move pv_move, int ply, const SearchInfo& info) {
+int score_move(const Board& board, Move move, Move pv_move, int ply, const SearchInfo& info, MoveContext prev1 = {}, MoveContext prev2 = {}) {
     if (move == pv_move) {
         return 30000; // Search the principal variation (PV) move first
     }
@@ -208,7 +213,7 @@ int score_move(const Board& board, Move move, Move pv_move, int ply, const Searc
         return 10000 + (get_piece_value(victim_type) * 10) - (get_piece_value(attacker_type) / 100);
     }
 
-    // Quiet moves: order by Killer moves, then by History heuristic
+    // Quiet moves: order by Killer moves, then by combined History + Continuation History heuristics
     if (ply < MAX_PLY) {
         if (move == info.killer_moves[0][ply]) {
             return 9000;
@@ -218,26 +223,45 @@ int score_move(const Board& board, Move move, Move pv_move, int ply, const Searc
         }
     }
 
-    // Retrieve history heuristic score
+    // Retrieve history heuristic and continuation history scores
     Piece p = board.get_piece(move.get_from());
     if (p != Piece::None) {
         int piece_idx = static_cast<int>(p);
         int sq_idx = static_cast<int>(move.get_to());
-        int history_val = info.history_moves[piece_idx][sq_idx];
+        int main_history = info.history_moves[piece_idx][sq_idx];
+
+        int cont1_history = 0;
+        if (prev1.piece != Piece::None && prev1.to != Square::None) {
+            int p1_idx = static_cast<int>(prev1.piece);
+            int to1_idx = static_cast<int>(prev1.to);
+            cont1_history = info.cont_history_1ply[p1_idx][to1_idx][piece_idx][sq_idx];
+        }
+
+        int cont2_history = 0;
+        if (prev2.piece != Piece::None && prev2.to != Square::None) {
+            int p2_idx = static_cast<int>(prev2.piece);
+            int to2_idx = static_cast<int>(prev2.to);
+            cont2_history = info.cont_history_2ply[p2_idx][to2_idx][piece_idx][sq_idx];
+        }
+
+        int combined_history = (main_history * HISTORY_WEIGHT_MAIN 
+                              + cont1_history * HISTORY_WEIGHT_CONT1 
+                              + cont2_history * HISTORY_WEIGHT_CONT2) / HISTORY_WEIGHT_TOTAL;
+
         // Scale and cap the history score to be in range [0, 7000]
-        return std::min(history_val, 7000);
+        return std::min(combined_history, 7000);
     }
 
     return 0; // Quiet moves
 }
 
 // Sort moves in place in descending order of their heuristic scores
-void order_moves(const Board& board, std::vector<Move>& moves, Move pv_move, int ply, const SearchInfo& info) {
+void order_moves(const Board& board, std::vector<Move>& moves, Move pv_move, int ply, const SearchInfo& info, MoveContext prev1 = {}, MoveContext prev2 = {}) {
     std::vector<std::pair<int, Move>> scored_moves;
     scored_moves.reserve(moves.size());
 
     for (Move m : moves) {
-        scored_moves.emplace_back(score_move(board, m, pv_move, ply, info), m);
+        scored_moves.emplace_back(score_move(board, m, pv_move, ply, info, prev1, prev2), m);
     }
 
     std::sort(scored_moves.begin(), scored_moves.end(), [](const auto& a, const auto& b) {
@@ -367,7 +391,7 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
 }
 
 // Recursive Negamax with Alpha-Beta Pruning
-int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info, Move excluded_move) {
+int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info, Move excluded_move, MoveContext prev1, MoveContext prev2) {
     info.nodes_searched++;
 
     // Check time/stop constraints every 2048 nodes
@@ -454,7 +478,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             UndoState undo;
             board.makeNullMove(undo);
             int R = 2; // Reduction depth
-            int score = -search_alphabeta(board, depth - 1 - R, -beta, -beta + 1, ply + 1, info);
+            int score = -search_alphabeta(board, depth - 1 - R, -beta, -beta + 1, ply + 1, info, MOVE_NONE, {}, prev1);
             board.unmakeNullMove(undo);
             if (score >= beta) {
                 return beta; // Fail high
@@ -477,9 +501,9 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         return 0; // Stalemate
     }
 
-    // Order moves, prioritizing TT best move
+    // Order moves, prioritizing TT best move and combined history
     Move tt_move = tt_hit ? tt_entry.move : MOVE_NONE;
-    order_moves(board, moves, tt_move, ply, info);
+    order_moves(board, moves, tt_move, ply, info, prev1, prev2);
 
     // Singular Extension:
     // Before searching the TT move, run a reduced-depth null-window search excluding the TT move
@@ -498,7 +522,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         int singular_beta = tt_entry.score - singular_margin;
         int singular_depth = (depth - 1) / 2;
 
-        int singular_score = search_alphabeta(board, singular_depth, singular_beta - 1, singular_beta, ply, info, tt_move);
+        int singular_score = search_alphabeta(board, singular_depth, singular_beta - 1, singular_beta, ply, info, tt_move, prev1, prev2);
 
         if (singular_score < singular_beta) {
             extension = 1;
@@ -523,6 +547,9 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             continue; // Prune quiet move
         }
 
+        Piece moved_p = board.get_piece(m.get_from());
+        Square to_sq = m.get_to();
+
         UndoState undo;
         if (!board.makeMove(m, undo)) {
             continue;
@@ -533,6 +560,9 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         int new_depth = depth - 1 + ext;
         int score;
 
+        MoveContext next_prev1 = {moved_p, to_sq};
+        MoveContext next_prev2 = prev1;
+
         // Principal Variation Search (PVS) & Late Move Reductions (LMR)
         if (g_search_settings.pvs && moves_searched > 1) {
             if (g_search_settings.lmr && depth >= 3 && moves_searched > 4 && !m.isCapture() && !m.isPromotion() && !in_check && !is_in_check(board, board.get_side_to_move())) {
@@ -540,14 +570,14 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
                 if (moves_searched > 12) {
                     reduction = 2;
                 }
-                score = -search_alphabeta(board, new_depth - reduction, -alpha - 1, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth - reduction, -alpha - 1, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
             } else {
-                score = -search_alphabeta(board, new_depth, -alpha - 1, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth, -alpha - 1, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
             }
 
             if (score > alpha && score < beta) {
                 // Re-search with full window
-                score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
             }
         } else {
             // Normal alpha-beta search
@@ -556,12 +586,12 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
                 if (moves_searched > 12) {
                     reduction = 2;
                 }
-                score = -search_alphabeta(board, new_depth - reduction, -alpha - 1, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth - reduction, -alpha - 1, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
                 if (score > alpha) {
-                    score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info);
+                    score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
                 }
             } else {
-                score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info);
+                score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
             }
         }
 
@@ -586,24 +616,53 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         }
 
         if (alpha >= beta) {
-            // Cutoff: if it's a quiet move, record killer and history heuristic
+            // Cutoff: if it's a quiet move, record killer, history, and continuation history heuristics
             if (excluded_move == MOVE_NONE && !m.isCapture() && !m.isPromotion() && ply < MAX_PLY) {
                 // Update killer moves
                 info.killer_moves[1][ply] = info.killer_moves[0][ply];
                 info.killer_moves[0][ply] = m;
 
-                // Update history heuristic
-                Piece p = board.get_piece(m.get_from());
-                if (p != Piece::None) {
-                    int piece_idx = static_cast<int>(p);
-                    int sq_idx = static_cast<int>(m.get_to());
-                    info.history_moves[piece_idx][sq_idx] += depth * depth;
+                // Update history heuristics
+                if (moved_p != Piece::None) {
+                    int piece_idx = static_cast<int>(moved_p);
+                    int sq_idx = static_cast<int>(to_sq);
+                    int bonus = depth * depth;
+
+                    info.history_moves[piece_idx][sq_idx] += bonus;
 
                     // Prevent history overflow by aging/halving scores when any entry exceeds 100000
                     if (info.history_moves[piece_idx][sq_idx] > 100000) {
                         for (int p_idx = 0; p_idx < 12; ++p_idx) {
                             for (int sq = 0; sq < 64; ++sq) {
                                 info.history_moves[p_idx][sq] /= 2;
+                            }
+                        }
+                    }
+
+                    // Update Continuation History (1-ply ago)
+                    if (prev1.piece != Piece::None && prev1.to != Square::None) {
+                        int p1_idx = static_cast<int>(prev1.piece);
+                        int to1_idx = static_cast<int>(prev1.to);
+                        info.cont_history_1ply[p1_idx][to1_idx][piece_idx][sq_idx] += bonus;
+                        if (info.cont_history_1ply[p1_idx][to1_idx][piece_idx][sq_idx] > 100000) {
+                            for (int pi = 0; pi < 12; ++pi) {
+                                for (int sq = 0; sq < 64; ++sq) {
+                                    info.cont_history_1ply[p1_idx][to1_idx][pi][sq] /= 2;
+                                }
+                            }
+                        }
+                    }
+
+                    // Update Continuation History (2-ply ago)
+                    if (prev2.piece != Piece::None && prev2.to != Square::None) {
+                        int p2_idx = static_cast<int>(prev2.piece);
+                        int to2_idx = static_cast<int>(prev2.to);
+                        info.cont_history_2ply[p2_idx][to2_idx][piece_idx][sq_idx] += bonus;
+                        if (info.cont_history_2ply[p2_idx][to2_idx][piece_idx][sq_idx] > 100000) {
+                            for (int pi = 0; pi < 12; ++pi) {
+                                for (int sq = 0; sq < 64; ++sq) {
+                                    info.cont_history_2ply[p2_idx][to2_idx][pi][sq] /= 2;
+                                }
                             }
                         }
                     }
@@ -666,17 +725,20 @@ SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha, i
         info.tt_hits++;
         tt_move = tt_entry.move;
     }
-    order_moves(board, moves, tt_move, 0, info);
+    order_moves(board, moves, tt_move, 0, info, {}, {});
 
     info.pv_length[0] = 0;
 
     for (Move m : moves) {
+        Piece moved_p = board.get_piece(m.get_from());
+        Square to_sq = m.get_to();
+
         UndoState undo;
         if (!board.makeMove(m, undo)) {
             continue;
         }
 
-        int score = -search_alphabeta(board, depth - 1, -beta, -alpha, 1, info);
+        int score = -search_alphabeta(board, depth - 1, -beta, -alpha, 1, info, MOVE_NONE, {moved_p, to_sq}, {});
         board.unmakeMove(m, undo);
 
         if (score > result.score) {
@@ -705,7 +767,8 @@ SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha, i
 }
 
 SearchResult search_thread(Board& board, int max_depth, int thread_id) {
-    SearchInfo info;
+    auto info_ptr = std::make_unique<SearchInfo>();
+    SearchInfo& info = *info_ptr;
     info.nodes_searched = 0;
     info.pv_move = MOVE_NONE;
 
