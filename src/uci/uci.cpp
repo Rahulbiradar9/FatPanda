@@ -23,6 +23,7 @@ namespace ChessEngine {
 int g_search_overhead_ms = 20;
 bool g_own_book = true;
 std::string g_book_file = "book.bin";
+bool g_chess960 = false;
 
 namespace {
 
@@ -77,9 +78,22 @@ Move parse_move(Board& board, const std::string& move_str) {
     
     auto legal_moves = generate_legal_moves(board);
     for (Move m : legal_moves) {
-        if (m.getSourceSquare() == from && m.getDestinationSquare() == to) {
+        if (m.getSourceSquare() == from) {
             if (promo == PieceType::None || m.getPromotionPieceType() == promo) {
-                return m;
+                // Direct match
+                if (m.getDestinationSquare() == to) {
+                    return m;
+                }
+                // Castling notation matching across standard (e1g1) and Chess960 (e1h1) formats
+                if (m.isCastling()) {
+                    int rank = get_rank(from);
+                    Color us = (rank == 0) ? Color::White : Color::Black;
+                    Square r_sq = board.get_castling_rook(us, m.is_castle_k());
+                    Square k_target = m.is_castle_k() ? make_square(6, rank) : make_square(2, rank);
+                    if (to == r_sq || to == k_target) {
+                        return m;
+                    }
+                }
             }
         }
     }
@@ -339,6 +353,12 @@ void parse_setoption(std::stringstream& ss) {
                 g_multipv = val;
             }
         } catch (...) {}
+    } else if (option_name == "UCI_Chess960" || option_name == "uci_chess960" || option_name == "Chess960") {
+        if (option_value == "true" || option_value == "True" || option_value == "1") {
+            g_chess960 = true;
+        } else if (option_value == "false" || option_value == "False" || option_value == "0") {
+            g_chess960 = false;
+        }
     }
 }
 
@@ -372,6 +392,7 @@ void uci_loop() {
             std::cout << "option name Threads type spin default 1 min 1 max 128\n";
             std::cout << "option name Use NNUE type check default false\n";
             std::cout << "option name EvalFile type string default nn.nnue\n";
+            std::cout << "option name UCI_Chess960 type check default false\n";
             std::cout << "option name MultiPV type spin default 1 min 1 max 256\n";
             std::cout << "option name SingularMargin type spin default 2 min 0 max 100\n";
             std::cout << "option name SingularExtension type check default true\n";

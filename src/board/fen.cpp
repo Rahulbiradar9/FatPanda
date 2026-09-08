@@ -80,14 +80,83 @@ bool Board::load_from_fen(std::string_view fen) {
 
     // 3. Parse Castling Rights
     castling_rights_ = Castling::NONE;
+    castling_rooks_.fill(Square::None);
+
+    Bitboard wk_bb = get_piece_bitboard(Piece::WhiteKing);
+    Bitboard bk_bb = get_piece_bitboard(Piece::BlackKing);
+    Square wk_sq = wk_bb ? get_lsb(wk_bb) : Square::E1;
+    Square bk_sq = bk_bb ? get_lsb(bk_bb) : Square::E8;
+    int wk_file = get_file(wk_sq);
+    int bk_file = get_file(bk_sq);
+
     if (castling != "-") {
         for (char c : castling) {
-            switch (c) {
-                case 'K': castling_rights_ |= Castling::WK; break;
-                case 'Q': castling_rights_ |= Castling::WQ; break;
-                case 'k': castling_rights_ |= Castling::BK; break;
-                case 'q': castling_rights_ |= Castling::BQ; break;
-                default: return false; // Invalid castling character
+            if (c == 'K') {
+                // Outermost white rook with file > wk_file on rank 0
+                int best_f = -1;
+                for (int f = wk_file + 1; f < 8; ++f) {
+                    if (get_piece(make_square(f, 0)) == Piece::WhiteRook) {
+                        best_f = f;
+                    }
+                }
+                castling_rights_ |= Castling::WK;
+                castling_rooks_[0] = (best_f != -1) ? make_square(best_f, 0) : Square::H1;
+            } else if (c == 'Q') {
+                // Outermost white rook with file < wk_file on rank 0
+                int best_f = -1;
+                for (int f = wk_file - 1; f >= 0; --f) {
+                    if (get_piece(make_square(f, 0)) == Piece::WhiteRook) {
+                        best_f = f;
+                    }
+                }
+                castling_rights_ |= Castling::WQ;
+                castling_rooks_[1] = (best_f != -1) ? make_square(best_f, 0) : Square::A1;
+            } else if (c == 'k') {
+                // Outermost black rook with file > bk_file on rank 7
+                int best_f = -1;
+                for (int f = bk_file + 1; f < 8; ++f) {
+                    if (get_piece(make_square(f, 7)) == Piece::BlackRook) {
+                        best_f = f;
+                    }
+                }
+                castling_rights_ |= Castling::BK;
+                castling_rooks_[2] = (best_f != -1) ? make_square(best_f, 7) : Square::H8;
+            } else if (c == 'q') {
+                // Outermost black rook with file < bk_file on rank 7
+                int best_f = -1;
+                for (int f = bk_file - 1; f >= 0; --f) {
+                    if (get_piece(make_square(f, 7)) == Piece::BlackRook) {
+                        best_f = f;
+                    }
+                }
+                castling_rights_ |= Castling::BQ;
+                castling_rooks_[3] = (best_f != -1) ? make_square(best_f, 7) : Square::A8;
+            } else if (c >= 'A' && c <= 'H') {
+                int r_file = c - 'A';
+                Square r_sq = make_square(r_file, 0);
+                if (get_piece(r_sq) == Piece::WhiteRook) {
+                    if (r_file > wk_file) {
+                        castling_rights_ |= Castling::WK;
+                        castling_rooks_[0] = r_sq;
+                    } else if (r_file < wk_file) {
+                        castling_rights_ |= Castling::WQ;
+                        castling_rooks_[1] = r_sq;
+                    }
+                }
+            } else if (c >= 'a' && c <= 'h') {
+                int r_file = c - 'a';
+                Square r_sq = make_square(r_file, 7);
+                if (get_piece(r_sq) == Piece::BlackRook) {
+                    if (r_file > bk_file) {
+                        castling_rights_ |= Castling::BK;
+                        castling_rooks_[2] = r_sq;
+                    } else if (r_file < bk_file) {
+                        castling_rights_ |= Castling::BQ;
+                        castling_rooks_[3] = r_sq;
+                    }
+                }
+            } else {
+                return false; // Invalid castling character
             }
         }
     }
@@ -179,10 +248,30 @@ std::string Board::to_fen() const {
     if (castling_rights_ == Castling::NONE) {
         fen << '-';
     } else {
-        if (castling_rights_ & Castling::WK) fen << 'K';
-        if (castling_rights_ & Castling::WQ) fen << 'Q';
-        if (castling_rights_ & Castling::BK) fen << 'k';
-        if (castling_rights_ & Castling::BQ) fen << 'q';
+        bool standard_squares = (castling_rooks_[0] == Square::H1 || !(castling_rights_ & Castling::WK)) &&
+                                (castling_rooks_[1] == Square::A1 || !(castling_rights_ & Castling::WQ)) &&
+                                (castling_rooks_[2] == Square::H8 || !(castling_rights_ & Castling::BK)) &&
+                                (castling_rooks_[3] == Square::A8 || !(castling_rights_ & Castling::BQ));
+
+        if (!g_chess960 && standard_squares) {
+            if (castling_rights_ & Castling::WK) fen << 'K';
+            if (castling_rights_ & Castling::WQ) fen << 'Q';
+            if (castling_rights_ & Castling::BK) fen << 'k';
+            if (castling_rights_ & Castling::BQ) fen << 'q';
+        } else {
+            if (castling_rights_ & Castling::WK) {
+                fen << static_cast<char>('A' + get_file(castling_rooks_[0]));
+            }
+            if (castling_rights_ & Castling::WQ) {
+                fen << static_cast<char>('A' + get_file(castling_rooks_[1]));
+            }
+            if (castling_rights_ & Castling::BK) {
+                fen << static_cast<char>('a' + get_file(castling_rooks_[2]));
+            }
+            if (castling_rights_ & Castling::BQ) {
+                fen << static_cast<char>('a' + get_file(castling_rooks_[3]));
+            }
+        }
     }
 
     // 4. En Passant Square

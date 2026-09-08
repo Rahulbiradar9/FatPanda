@@ -238,41 +238,99 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
         // Castling rights (King must not be in check right now)
         if (!is_in_check(board, us)) {
             uint8_t rights = board.get_castling_rights();
-            if (us == Color::White) {
-                // White King-side
-                if (rights & Castling::WK) {
-                    if (!test_bit(both_occ, Square::F1) && !test_bit(both_occ, Square::G1)) {
-                        if (!is_square_attacked(board, Square::F1, Color::Black) &&
-                            !is_square_attacked(board, Square::G1, Color::Black)) {
-                            moves.emplace_back(Square::E1, Square::G1, PieceType::None, PieceType::None, MoveFlag::CASTLE_K);
+            int rank = (us == Color::White) ? 0 : 7;
+            Color opponent = ~us;
+            int k_from_file = get_file(from);
+
+            // 1. King-side Castling
+            uint8_t ks_flag = (us == Color::White) ? Castling::WK : Castling::BK;
+            if (rights & ks_flag) {
+                Square r_from = board.get_castling_rook(us, true);
+                if (r_from != Square::None) {
+                    int r_from_file = get_file(r_from);
+                    int k_to_file = 6;
+                    int r_to_file = 5;
+
+                    // All squares between king and rook start/end positions (except start squares) must be empty
+                    int min_f = std::min({k_from_file, k_to_file, r_from_file, r_to_file});
+                    int max_f = std::max({k_from_file, k_to_file, r_from_file, r_to_file});
+                    bool path_clear = true;
+
+                    for (int f = min_f; f <= max_f; ++f) {
+                        Square sq = make_square(f, rank);
+                        if (sq != from && sq != r_from) {
+                            if (test_bit(both_occ, sq)) {
+                                path_clear = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (path_clear) {
+                        // All squares the king passes through (including k_to, but excluding from) must not be attacked
+                        bool path_safe = true;
+                        int step = (k_to_file > k_from_file) ? 1 : ((k_to_file < k_from_file) ? -1 : 0);
+                        if (step != 0) {
+                            for (int f = k_from_file + step; ; f += step) {
+                                Square sq = make_square(f, rank);
+                                if (is_square_attacked(board, sq, opponent)) {
+                                    path_safe = false;
+                                    break;
+                                }
+                                if (f == k_to_file) break;
+                            }
+                        }
+
+                        if (path_safe) {
+                            Square dest_sq = g_chess960 ? r_from : make_square(6, rank);
+                            moves.emplace_back(from, dest_sq, PieceType::None, PieceType::None, MoveFlag::CASTLE_K);
                         }
                     }
                 }
-                // White Queen-side
-                if (rights & Castling::WQ) {
-                    if (!test_bit(both_occ, Square::D1) && !test_bit(both_occ, Square::C1) && !test_bit(both_occ, Square::B1)) {
-                        if (!is_square_attacked(board, Square::D1, Color::Black) &&
-                            !is_square_attacked(board, Square::C1, Color::Black)) {
-                            moves.emplace_back(Square::E1, Square::C1, PieceType::None, PieceType::None, MoveFlag::CASTLE_Q);
+            }
+
+            // 2. Queen-side Castling
+            uint8_t qs_flag = (us == Color::White) ? Castling::WQ : Castling::BQ;
+            if (rights & qs_flag) {
+                Square r_from = board.get_castling_rook(us, false);
+                if (r_from != Square::None) {
+                    int r_from_file = get_file(r_from);
+                    int k_to_file = 2;
+                    int r_to_file = 3;
+
+                    // All squares between king and rook start/end positions (except start squares) must be empty
+                    int min_f = std::min({k_from_file, k_to_file, r_from_file, r_to_file});
+                    int max_f = std::max({k_from_file, k_to_file, r_from_file, r_to_file});
+                    bool path_clear = true;
+
+                    for (int f = min_f; f <= max_f; ++f) {
+                        Square sq = make_square(f, rank);
+                        if (sq != from && sq != r_from) {
+                            if (test_bit(both_occ, sq)) {
+                                path_clear = false;
+                                break;
+                            }
                         }
                     }
-                }
-            } else {
-                // Black King-side
-                if (rights & Castling::BK) {
-                    if (!test_bit(both_occ, Square::F8) && !test_bit(both_occ, Square::G8)) {
-                        if (!is_square_attacked(board, Square::F8, Color::White) &&
-                            !is_square_attacked(board, Square::G8, Color::White)) {
-                            moves.emplace_back(Square::E8, Square::G8, PieceType::None, PieceType::None, MoveFlag::CASTLE_K);
+
+                    if (path_clear) {
+                        // All squares the king passes through (including k_to, but excluding from) must not be attacked
+                        bool path_safe = true;
+                        int step = (k_to_file > k_from_file) ? 1 : ((k_to_file < k_from_file) ? -1 : 0);
+                        if (step != 0) {
+                            for (int f = k_from_file + step; ; f += step) {
+                                Square sq = make_square(f, rank);
+                                if (is_square_attacked(board, sq, opponent)) {
+                                    path_safe = false;
+                                    break;
+                                }
+                                if (f == k_to_file) break;
+                            }
                         }
-                    }
-                }
-                // Black Queen-side
-                if (rights & Castling::BQ) {
-                    if (!test_bit(both_occ, Square::D8) && !test_bit(both_occ, Square::C8) && !test_bit(both_occ, Square::B8)) {
-                        if (!is_square_attacked(board, Square::D8, Color::White) &&
-                            !is_square_attacked(board, Square::C8, Color::White)) {
-                            moves.emplace_back(Square::E8, Square::C8, PieceType::None, PieceType::None, MoveFlag::CASTLE_Q);
+
+                        if (path_safe) {
+                            Square dest_sq = g_chess960 ? r_from : make_square(2, rank);
+                            moves.emplace_back(from, dest_sq, PieceType::None, PieceType::None, MoveFlag::CASTLE_Q);
                         }
                     }
                 }

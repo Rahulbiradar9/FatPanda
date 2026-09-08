@@ -65,6 +65,7 @@ void Board::clear() {
     // Reset game state
     side_to_move_ = Color::White;
     castling_rights_ = Castling::NONE;
+    castling_rooks_.fill(Square::None);
     en_passant_ = Square::None;
     halfmove_clock_ = 0;
     fullmove_number_ = 1;
@@ -175,6 +176,7 @@ void Board::reset_to_start() {
     // 3. Setup Game State
     side_to_move_ = Color::White;
     castling_rights_ = Castling::ALL;
+    castling_rooks_ = { Square::H1, Square::A1, Square::H8, Square::A8 };
     en_passant_ = Square::None;
     halfmove_clock_ = 0;
     fullmove_number_ = 1;
@@ -321,17 +323,20 @@ bool Board::makeMove(Move m, UndoState& undo) {
     }
 
     if (m.isCastling()) {
-        int file_diff = get_file(to) - get_file(from);
-        Piece rook = make_piece(us, PieceType::Rook);
-        Square r_from, r_to;
-        if (file_diff > 0) { // Kingside
-            r_from = (us == Color::White) ? Square::H1 : Square::H8;
-            r_to = (us == Color::White) ? Square::F1 : Square::F8;
-        } else { // Queenside
-            r_from = (us == Color::White) ? Square::A1 : Square::A8;
-            r_to = (us == Color::White) ? Square::D1 : Square::D8;
+        int rank = (us == Color::White) ? 0 : 7;
+        Square k_from = from;
+        Square k_to = m.is_castle_k() ? make_square(6, rank) : make_square(2, rank);
+        Square r_to = m.is_castle_k() ? make_square(5, rank) : make_square(3, rank);
+        Square r_from = (to != k_to) ? to : get_castling_rook(us, m.is_castle_k());
+        if (r_from == Square::None) {
+            r_from = m.is_castle_k() ? make_square(7, rank) : make_square(0, rank);
         }
+        Piece king = make_piece(us, PieceType::King);
+        Piece rook = make_piece(us, PieceType::Rook);
+
+        nnue_removed[nnue_num_removed++] = {king, k_from};
         nnue_removed[nnue_num_removed++] = {rook, r_from};
+        nnue_added[nnue_num_added++] = {king, k_to};
         nnue_added[nnue_num_added++] = {rook, r_to};
     }
 
@@ -368,38 +373,31 @@ bool Board::makeMove(Move m, UndoState& undo) {
         }
     }
 
-    // Handle promotion or normal move
-    if (m.isPromotion()) {
+    // Handle castling or normal move / promotion
+    if (m.isCastling()) {
+        int rank = (us == Color::White) ? 0 : 7;
+        Square k_from = from;
+        Square k_to = m.is_castle_k() ? make_square(6, rank) : make_square(2, rank);
+        Square r_to = m.is_castle_k() ? make_square(5, rank) : make_square(3, rank);
+        Square r_from = (to != k_to) ? to : get_castling_rook(us, m.is_castle_k());
+        if (r_from == Square::None) {
+            r_from = m.is_castle_k() ? make_square(7, rank) : make_square(0, rank);
+        }
+        Piece king = make_piece(us, PieceType::King);
+        Piece rook = make_piece(us, PieceType::Rook);
+
+        // Clear both source squares first (avoids overwriting when pieces swap or overlap)
+        set_piece(k_from, Piece::None);
+        set_piece(r_from, Piece::None);
+        set_piece(k_to, king);
+        set_piece(r_to, rook);
+    } else if (m.isPromotion()) {
         Piece promo_piece = make_piece(us, m.getPromotionPieceType());
         set_piece(from, Piece::None);
         set_piece(to, promo_piece);
     } else {
         set_piece(from, Piece::None);
         set_piece(to, moving_piece);
-    }
-
-    // Handle castling rook movement
-    if (m.isCastling()) {
-        int file_diff = get_file(to) - get_file(from);
-        if (file_diff > 0) {
-            // Kingside
-            if (us == Color::White) {
-                set_piece(Square::H1, Piece::None);
-                set_piece(Square::F1, Piece::WhiteRook);
-            } else {
-                set_piece(Square::H8, Piece::None);
-                set_piece(Square::F8, Piece::BlackRook);
-            }
-        } else {
-            // Queenside
-            if (us == Color::White) {
-                set_piece(Square::A1, Piece::None);
-                set_piece(Square::D1, Piece::WhiteRook);
-            } else {
-                set_piece(Square::A8, Piece::None);
-                set_piece(Square::D8, Piece::BlackRook);
-            }
-        }
     }
 
     // Handle pawn double push
@@ -409,19 +407,16 @@ bool Board::makeMove(Move m, UndoState& undo) {
     }
 
     // Update castling rights
-    static constexpr std::array<uint8_t, 64> castling_mask = []() {
-        std::array<uint8_t, 64> mask{};
-        mask.fill(15);
-        mask[static_cast<size_t>(Square::A1)] = 13; // ~WQ (15 - 2)
-        mask[static_cast<size_t>(Square::H1)] = 14; // ~WK (15 - 1)
-        mask[static_cast<size_t>(Square::E1)] = 12; // ~(WK | WQ) (15 - 3)
-        mask[static_cast<size_t>(Square::A8)] = 7;  // ~BQ (15 - 8)
-        mask[static_cast<size_t>(Square::H8)] = 11; // ~BK (15 - 4)
-        mask[static_cast<size_t>(Square::E8)] = 3;  // ~(BK | BQ) (15 - 12)
-        return mask;
-    }();
+    if (moving_piece == Piece::WhiteKing) {
+        castling_rights_ &= ~(Castling::WK | Castling::WQ);
+    } else if (moving_piece == Piece::BlackKing) {
+        castling_rights_ &= ~(Castling::BK | Castling::BQ);
+    }
 
-    castling_rights_ &= (castling_mask[static_cast<size_t>(from)] & castling_mask[static_cast<size_t>(to)]);
+    if (from == castling_rooks_[0] || to == castling_rooks_[0]) castling_rights_ &= ~Castling::WK;
+    if (from == castling_rooks_[1] || to == castling_rooks_[1]) castling_rights_ &= ~Castling::WQ;
+    if (from == castling_rooks_[2] || to == castling_rooks_[2]) castling_rights_ &= ~Castling::BK;
+    if (from == castling_rooks_[3] || to == castling_rooks_[3]) castling_rights_ &= ~Castling::BQ;
 
     // Swap side to move
     side_to_move_ = opponent;
@@ -456,7 +451,24 @@ void Board::unmakeMove(Move m, const UndoState& undo) {
     Square to = m.getDestinationSquare();
 
     // 3. Move pieces back
-    if (m.isPromotion()) {
+    if (m.isCastling()) {
+        int rank = (side_to_move_ == Color::White) ? 0 : 7;
+        Square k_from = from;
+        Square k_to = m.is_castle_k() ? make_square(6, rank) : make_square(2, rank);
+        Square r_to = m.is_castle_k() ? make_square(5, rank) : make_square(3, rank);
+        Square r_from = (to != k_to) ? to : get_castling_rook(side_to_move_, m.is_castle_k());
+        if (r_from == Square::None) {
+            r_from = m.is_castle_k() ? make_square(7, rank) : make_square(0, rank);
+        }
+        Piece king = make_piece(side_to_move_, PieceType::King);
+        Piece rook = make_piece(side_to_move_, PieceType::Rook);
+
+        // Clear both destination squares first
+        set_piece(k_to, Piece::None);
+        set_piece(r_to, Piece::None);
+        set_piece(k_from, king);
+        set_piece(r_from, rook);
+    } else if (m.isPromotion()) {
         Piece pawn = make_piece(side_to_move_, PieceType::Pawn);
         set_piece(to, Piece::None);
         set_piece(from, pawn);
@@ -473,30 +485,6 @@ void Board::unmakeMove(Move m, const UndoState& undo) {
             set_piece(cap_sq, undo.capturedPiece);
         } else {
             set_piece(to, undo.capturedPiece);
-        }
-    }
-
-    // 5. Restore castling rooks (if castling move)
-    if (m.isCastling()) {
-        int file_diff = get_file(to) - get_file(from);
-        if (file_diff > 0) {
-            // Kingside
-            if (side_to_move_ == Color::White) {
-                set_piece(Square::F1, Piece::None);
-                set_piece(Square::H1, Piece::WhiteRook);
-            } else {
-                set_piece(Square::F8, Piece::None);
-                set_piece(Square::H8, Piece::BlackRook);
-            }
-        } else {
-            // Queenside
-            if (side_to_move_ == Color::White) {
-                set_piece(Square::D1, Piece::None);
-                set_piece(Square::A1, Piece::WhiteRook);
-            } else {
-                set_piece(Square::D8, Piece::None);
-                set_piece(Square::A8, Piece::BlackRook);
-            }
         }
     }
 

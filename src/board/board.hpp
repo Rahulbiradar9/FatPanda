@@ -76,6 +76,24 @@ public:
     inline uint8_t get_castling_rights() const { return castling_rights_; }
     inline void set_castling_rights(uint8_t rights) { castling_rights_ = rights; }
 
+    inline Square get_castling_rook(Color color, bool kingside) const {
+        int idx = (color == Color::White ? 0 : 2) + (kingside ? 0 : 1);
+        return castling_rooks_[idx];
+    }
+
+    inline void set_castling_rook(Color color, bool kingside, Square sq) {
+        int idx = (color == Color::White ? 0 : 2) + (kingside ? 0 : 1);
+        castling_rooks_[idx] = sq;
+    }
+
+    inline const std::array<Square, 4>& get_castling_rooks() const {
+        return castling_rooks_;
+    }
+
+    inline void set_castling_rooks(const std::array<Square, 4>& rooks) {
+        castling_rooks_ = rooks;
+    }
+
     inline Square get_en_passant() const { return en_passant_; }
     inline void set_en_passant(Square sq) { en_passant_ = sq; }
 
@@ -133,6 +151,7 @@ private:
     // Game state variables
     Color side_to_move_;
     uint8_t castling_rights_;
+    std::array<Square, 4> castling_rooks_ = { Square::H1, Square::A1, Square::H8, Square::A8 };
     Square en_passant_;
     int halfmove_clock_;
     int fullmove_number_;
@@ -145,5 +164,7 @@ private:
     // NNUE Accumulator History Stack
     std::vector<Accumulator> accum_history_;
 };
+
+extern bool g_chess960;
 
 } // namespace ChessEngine

@@ -242,9 +242,22 @@ Move lookup_book_move(const Board& board, const std::string& book_path) {
         // Match against legal moves
         Move matched_move = MOVE_NONE;
         for (const auto& m : legal_moves) {
-            if (m.get_from() == from_sq && m.get_to() == to_sq && m.get_promotion_piece_type() == promo_type) {
-                matched_move = m;
-                break;
+            if (m.get_from() == from_sq && m.get_promotion_piece_type() == promo_type) {
+                if (m.get_to() == to_sq) {
+                    matched_move = m;
+                    break;
+                }
+                if (m.is_castle()) {
+                    int rank = get_rank(from_sq);
+                    if (m.is_castle_k() && to_sq == make_square(6, rank)) {
+                        matched_move = m;
+                        break;
+                    }
+                    if (m.is_castle_q() && to_sq == make_square(2, rank)) {
+                        matched_move = m;
+                        break;
+                    }
+                }
             }
         }
 
