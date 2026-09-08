@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "board/board.hpp"
 #include "uci/uci.hpp"
+#include "search/search.hpp"
 #include <sstream>
 
 using namespace ChessEngine;
@@ -70,3 +71,16 @@ TEST(UciTest, ParsePositionFen) {
     EXPECT_EQ(board.getPiece(Square::C1), Piece::WhiteKing);
     EXPECT_EQ(board.getPiece(Square::D1), Piece::WhiteRook);
 }
+
+TEST(UciTest, MultiPVSearch) {
+    Board board;
+    board.reset_to_start();
+    g_multipv = 3;
+    
+    SearchResult res = search(board, 3);
+    EXPECT_FALSE(res.best_move.is_none());
+    EXPECT_GT(res.nodes_searched, 0u);
+    
+    g_multipv = 1; // Reset to default
+}
+

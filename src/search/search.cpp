@@ -24,6 +24,7 @@ int g_singular_margin = 2;
 int g_lmp_max_depth = 8;
 int g_probcut_margin = 100;
 int g_delta_margin = 200;
+int g_multipv = 1;
 
 namespace {
 
@@ -963,8 +964,8 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
 } // namespace
 
-// Search root at specific depth
-SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha, int beta) {
+// Search root at specific depth with optional excluded moves list (for MultiPV)
+SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha, int beta, const std::vector<Move>& excluded_root_moves) {
     SearchResult result;
     result.best_move = MOVE_NONE;
     result.score = -INFINITY_SCORE;
@@ -986,6 +987,28 @@ SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha, i
         return result;
     }
 
+    // Exclude previously found best root moves (MultiPV exclusion list)
+    if (!excluded_root_moves.empty()) {
+        std::vector<Move> filtered_moves;
+        filtered_moves.reserve(moves.size());
+        for (Move m : moves) {
+            bool excluded = false;
+            for (Move ex : excluded_root_moves) {
+                if (m == ex) {
+                    excluded = true;
+                    break;
+                }
+            }
+            if (!excluded) {
+                filtered_moves.push_back(m);
+            }
+        }
+        moves = std::move(filtered_moves);
+        if (moves.empty()) {
+            return result;
+        }
+    }
+
     // Order moves, placing the PV move (best move from previous depth) or TT move first
     TTEntry tt_entry;
     Move tt_move = info.pv_move;
@@ -998,7 +1021,8 @@ SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha, i
 
     info.pv_length[0] = 0;
 
-    for (Move m : moves) {
+    for (size_t i = 0; i < moves.size(); ++i) {
+        Move m = moves[i];
         Piece moved_p = board.get_piece(m.get_from());
         Square to_sq = m.get_to();
 
@@ -1007,7 +1031,21 @@ SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha, i
             continue;
         }
 
-        int score = -search_alphabeta(board, depth - 1, -beta, -alpha, 1, info, MOVE_NONE, {moved_p, to_sq}, {});
+        int score = 0;
+        if (i == 0) {
+            // Full window for first move
+            score = -search_alphabeta(board, depth - 1, -beta, -alpha, 1, info, MOVE_NONE, {moved_p, to_sq}, {});
+        } else {
+            // PVS zero-window search for subsequent moves
+            if (g_search_settings.pvs) {
+                score = -search_alphabeta(board, depth - 1, -alpha - 1, -alpha, 1, info, MOVE_NONE, {moved_p, to_sq}, {});
+                if (score > alpha && score < beta) {
+                    score = -search_alphabeta(board, depth - 1, -beta, -alpha, 1, info, MOVE_NONE, {moved_p, to_sq}, {});
+                }
+            } else {
+                score = -search_alphabeta(board, depth - 1, -beta, -alpha, 1, info, MOVE_NONE, {moved_p, to_sq}, {});
+            }
+        }
         board.unmakeMove(m, undo);
 
         if (score > result.score) {
@@ -1027,8 +1065,18 @@ SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha, i
         }
     }
 
-    // Root node score is exact, record in TT
-    if (result.best_move != MOVE_NONE) {
+    // Populate PV line in result
+    result.pv.clear();
+    if (info.pv_length[0] > 0 && info.pv_table[0][0] == result.best_move) {
+        for (int i = 0; i < info.pv_length[0]; ++i) {
+            result.pv.push_back(info.pv_table[0][i]);
+        }
+    } else if (result.best_move != MOVE_NONE) {
+        result.pv.push_back(result.best_move);
+    }
+
+    // Root node score is exact, record in TT only if no moves were excluded (primary PV)
+    if (excluded_root_moves.empty() && result.best_move != MOVE_NONE) {
         g_tt.record(board.get_hash_key(), result.best_move, result.score, depth, TT_EXACT, 0);
     }
 
@@ -1075,50 +1123,105 @@ SearchResult search_thread(Board& board, int max_depth, int thread_id) {
     }
 
     for (int depth = 1; depth <= actual_max_depth; ++depth) {
-        // Clear PV table for this iteration
-        std::fill(&info.pv_table[0][0], &info.pv_table[0][0] + MAX_PLY * MAX_PLY, MOVE_NONE);
-        std::fill(&info.pv_length[0], &info.pv_length[0] + MAX_PLY, 0);
+        int multipv_count = std::min(g_multipv, static_cast<int>(root_moves.size()));
+        if (multipv_count <= 0) multipv_count = 1;
 
-        SearchResult result;
-        if (g_search_settings.aspiration && depth >= 5) {
-            int alpha = last_score - 50;
-            int beta = last_score + 50;
-            int window = 50;
-            
-            while (true) {
-                result = search_root(board, depth, info, alpha, beta);
-                if (g_stop_search.load()) {
-                    break;
+        std::vector<Move> excluded_root_moves;
+        std::vector<SearchResult> pv_results;
+        pv_results.reserve(multipv_count);
+
+        for (int pv_idx = 0; pv_idx < multipv_count; ++pv_idx) {
+            // Clear PV table for this PV pass
+            std::fill(&info.pv_table[0][0], &info.pv_table[0][0] + MAX_PLY * MAX_PLY, MOVE_NONE);
+            std::fill(&info.pv_length[0], &info.pv_length[0] + MAX_PLY, 0);
+
+            SearchResult result;
+            if (g_search_settings.aspiration && depth >= 5 && pv_idx == 0) {
+                int alpha = last_score - 50;
+                int beta = last_score + 50;
+                int window = 50;
+                
+                while (true) {
+                    result = search_root(board, depth, info, alpha, beta, excluded_root_moves);
+                    if (g_stop_search.load()) {
+                        break;
+                    }
+                    
+                    if (result.score <= alpha) {
+                        alpha = std::max(-INFINITY_SCORE, alpha - window);
+                        window *= 2;
+                    } else if (result.score >= beta) {
+                        beta = std::min(INFINITY_SCORE, beta + window);
+                        window *= 2;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                result = search_root(board, depth, info, -INFINITY_SCORE, INFINITY_SCORE, excluded_root_moves);
+            }
+
+            if (g_stop_search.load()) {
+                break;
+            }
+
+            if (result.best_move.is_none()) {
+                break;
+            }
+
+            excluded_root_moves.push_back(result.best_move);
+            pv_results.push_back(result);
+
+            // Format and print UCI info string (only main thread prints)
+            if (thread_id == 0) {
+                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::steady_clock::now() - g_start_time)
+                                       .count();
+                std::cout << "info depth " << depth;
+                
+                if (g_multipv > 1) {
+                    std::cout << " multipv " << (pv_idx + 1);
                 }
                 
-                if (result.score <= alpha) {
-                    alpha = std::max(-INFINITY_SCORE, alpha - window);
-                    window *= 2;
-                } else if (result.score >= beta) {
-                    beta = std::min(INFINITY_SCORE, beta + window);
-                    window *= 2;
+                // Print score
+                if (std::abs(result.score) > MATE_SCORE - MAX_PLY) {
+                    int mate_in_plies = MATE_SCORE - std::abs(result.score);
+                    int mate_in_moves = (mate_in_plies + 1) / 2;
+                    std::cout << " score mate " << (result.score > 0 ? mate_in_moves : -mate_in_moves);
                 } else {
-                    break;
+                    std::cout << " score cp " << result.score;
                 }
+
+                double branching_factor = (depth > 0) ? std::pow(static_cast<double>(info.nodes_searched), 1.0 / depth) : 0.0;
+
+                std::cout << " nodes " << info.nodes_searched
+                          << " time " << elapsed_ms
+                          << " nps " << (elapsed_ms > 0 ? (info.nodes_searched * 1000 / elapsed_ms) : 0)
+                          << " hash_lookups " << info.tt_lookups
+                          << " hash_hits " << info.tt_hits
+                          << " bf " << branching_factor
+                          << " pv";
+                for (Move m : result.pv) {
+                    std::cout << " " << m.to_string();
+                }
+                std::cout << std::endl;
             }
-        } else {
-            result = search_root(board, depth, info, -INFINITY_SCORE, INFINITY_SCORE);
         }
 
         if (g_stop_search.load()) {
             break; // Discard partial/stopped results
         }
 
-        if (result.best_move.is_none()) {
-            if (depth == 1) {
-                final_result = result;
+        if (pv_results.empty()) {
+            if (depth == 1 && !final_result.best_move.is_none()) {
+                // keep previous
             }
             break;
         }
 
-        final_result = result;
-        info.pv_move = result.best_move; // Save PV move for next iteration
-        last_score = result.score;
+        final_result = pv_results[0];
+        info.pv_move = pv_results[0].best_move; // Save primary PV move for next iteration
+        last_score = pv_results[0].score;
 
         // Set search statistics in final result
         final_result.nodes_searched = info.nodes_searched;
@@ -1130,41 +1233,11 @@ SearchResult search_thread(Board& board, int max_depth, int thread_id) {
         } else {
             final_result.branching_factor = 0.0;
         }
-        final_result.pv.clear();
-        for (int i = 0; i < info.pv_length[0]; ++i) {
-            final_result.pv.push_back(info.pv_table[0][i]);
-        }
+        final_result.pv = pv_results[0].pv;
 
-        // Format and print UCI info string (only main thread prints)
         if (thread_id == 0) {
-            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   std::chrono::steady_clock::now() - g_start_time)
-                                   .count();
-            std::cout << "info depth " << depth;
-            
-            // Print score
-            if (std::abs(result.score) > MATE_SCORE - MAX_PLY) {
-                int mate_in_plies = MATE_SCORE - std::abs(result.score);
-                int mate_in_moves = (mate_in_plies + 1) / 2;
-                std::cout << " score mate " << (result.score > 0 ? mate_in_moves : -mate_in_moves);
-            } else {
-                std::cout << " score cp " << result.score;
-            }
-
-            std::cout << " nodes " << info.nodes_searched
-                      << " time " << elapsed_ms
-                      << " nps " << (elapsed_ms > 0 ? (info.nodes_searched * 1000 / elapsed_ms) : 0)
-                      << " hash_lookups " << info.tt_lookups
-                      << " hash_hits " << info.tt_hits
-                      << " bf " << final_result.branching_factor
-                      << " pv";
-            for (Move m : final_result.pv) {
-                std::cout << " " << m.to_string();
-            }
-            std::cout << std::endl;
-
             // Early stop: checkmate found
-            if (std::abs(result.score) > MATE_SCORE - MAX_PLY) {
+            if (std::abs(final_result.score) > MATE_SCORE - MAX_PLY && g_multipv == 1) {
                 break;
             }
 
