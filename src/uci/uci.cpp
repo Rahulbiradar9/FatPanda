@@ -280,6 +280,12 @@ void parse_setoption(std::stringstream& ss) {
         } else if (option_value == "false" || option_value == "False" || option_value == "0") {
             g_search_settings.singular = false;
         }
+    } else if (option_name == "IIR" || option_name == "iir" || option_name == "InternalIterativeReduction") {
+        if (option_value == "true" || option_value == "True" || option_value == "1") {
+            g_search_settings.iir = true;
+        } else if (option_value == "false" || option_value == "False" || option_value == "0") {
+            g_search_settings.iir = false;
+        }
     }
 }
 
@@ -315,6 +321,7 @@ void uci_loop() {
             std::cout << "option name EvalFile type string default nn.nnue\n";
             std::cout << "option name SingularMargin type spin default 2 min 0 max 100\n";
             std::cout << "option name SingularExtension type check default true\n";
+            std::cout << "option name IIR type check default true\n";
             std::cout << "uciok" << std::endl;
         } else if (command == "isready") {
             std::cout << "readyok" << std::endl;

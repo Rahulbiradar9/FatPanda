@@ -28,6 +28,10 @@ constexpr int HISTORY_WEIGHT_CONT1 = 2;
 constexpr int HISTORY_WEIGHT_CONT2 = 1;
 constexpr int HISTORY_WEIGHT_TOTAL = HISTORY_WEIGHT_MAIN + HISTORY_WEIGHT_CONT1 + HISTORY_WEIGHT_CONT2;
 
+// Internal Iterative Reduction (IIR) configuration
+constexpr int IIR_MIN_DEPTH = 4;
+constexpr int IIR_REDUCTION = 1;
+
 int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, SearchInfo& info, Move excluded_move = MOVE_NONE, MoveContext prev1 = {}, MoveContext prev2 = {});
 
 // Helper to determine piece values for move ordering (MVV-LVA)
@@ -491,6 +495,27 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         return quiescence(board, alpha, beta, ply, info);
     }
 
+    Move tt_move = (tt_hit && excluded_move == MOVE_NONE) ? tt_entry.move : MOVE_NONE;
+
+    // Internal Iterative Reduction (IIR):
+    // Reasoning difference between traditional IID and modern IIR:
+    // - Internal Iterative Deepening (IID): When reaching a node at high depth with no TT move,
+    //   older engines performed an extra shallow search (e.g., depth - 2) exclusively to populate
+    //   the Transposition Table with a best move before conducting the full search. However, running
+    //   this secondary search incurs considerable node overhead across the tree.
+    // - Internal Iterative Reduction (IIR): Instead of spending nodes on an auxiliary search,
+    //   IIR recognizes that lacking a TT move hurts move ordering efficiency, so it simply reduces
+    //   the search depth of the current node by 1 ply (depth -= 1). This prunes tree growth when
+    //   branching is uncertain. Once searched, the TT is populated at a lower cost, and any future
+    //   passes in iterative deepening or re-searches will have a valid TT move to search at full depth.
+    if (g_search_settings.iir 
+        && excluded_move == MOVE_NONE 
+        && depth >= IIR_MIN_DEPTH 
+        && tt_move == MOVE_NONE) 
+    {
+        depth -= IIR_REDUCTION;
+    }
+
     std::vector<Move> moves = generate_legal_moves(board);
 
     // Stalemate or Checkmate
@@ -502,7 +527,6 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     }
 
     // Order moves, prioritizing TT best move and combined history
-    Move tt_move = tt_hit ? tt_entry.move : MOVE_NONE;
     order_moves(board, moves, tt_move, ply, info, prev1, prev2);
 
     // Singular Extension:

@@ -72,6 +72,7 @@ struct SearchSettings {
     bool rfp = true;
     bool see = true;
     bool singular = true;
+    bool iir = true;
 };
 
 extern SearchSettings g_search_settings;

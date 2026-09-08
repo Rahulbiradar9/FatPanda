@@ -95,6 +95,7 @@ TEST(BenchmarkTest, SearchOptimizationsIndependentBenchmark) {
     SearchSettings no_rfp = base_settings; no_rfp.rfp = false;
     SearchSettings no_see = base_settings; no_see.see = false;
     SearchSettings no_se  = base_settings; no_se.singular = false;
+    SearchSettings no_iir = base_settings; no_iir.iir = false;
 
     std::vector<BenchmarkRun> runs = {
         {"All Enabled (Baseline)", base_settings},
@@ -105,7 +106,8 @@ TEST(BenchmarkTest, SearchOptimizationsIndependentBenchmark) {
         {"Without Futility Pruning", no_fut},
         {"Without Reverse Futility Pruning", no_rfp},
         {"Without Static Exchange Evaluation", no_see},
-        {"Without Singular Extensions", no_se}
+        {"Without Singular Extensions", no_se},
+        {"Without Internal Iterative Reductions", no_iir}
     };
 
     std::cout << "\n=========================================================================\n"
