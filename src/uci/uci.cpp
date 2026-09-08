@@ -8,6 +8,7 @@
 #include "board/syzygy.hpp"
 #include "evaluation/params.hpp"
 #include "evaluation/nnue.hpp"
+#include "utils/rng.hpp"
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
@@ -326,6 +327,11 @@ void parse_setoption(std::stringstream& ss) {
                 g_delta_margin = margin;
             }
         } catch (...) {}
+    } else if (option_name == "Seed" || option_name == "seed") {
+        try {
+            uint64_t seed = std::stoull(option_value);
+            set_global_seed(seed);
+        } catch (...) {}
     }
 }
 
@@ -368,6 +374,7 @@ void uci_loop() {
             std::cout << "option name ProbCutMargin type spin default 100 min 10 max 500\n";
             std::cout << "option name CorrectionHistory type check default true\n";
             std::cout << "option name DeltaMargin type spin default 200 min 0 max 1000\n";
+            std::cout << "option name Seed type spin default 42 min 0 max 2147483647\n";
             std::cout << "uciok" << std::endl;
         } else if (command == "isready") {
             std::cout << "readyok" << std::endl;
@@ -433,9 +440,6 @@ void parse_tune(std::stringstream& ss) {
         
         std::cout << "info string Starting native self-play match of " << games << " games..." << std::endl;
         
-        // Seed random number generator
-        srand(static_cast<unsigned int>(time(NULL)));
-        
         int tuned_wins = 0;
         int baseline_wins = 0;
         int draws = 0;
@@ -451,7 +455,7 @@ void parse_tune(std::stringstream& ss) {
             for (int i = 0; i < 2; ++i) {
                 std::vector<Move> moves = generate_legal_moves(board);
                 if (!moves.empty()) {
-                    size_t rand_idx = rand() % moves.size();
+                    size_t rand_idx = rand_index(moves.size());
                     board.make_move(moves[rand_idx]);
                 }
             }
@@ -577,7 +581,7 @@ void parse_datagen(std::stringstream& ss) {
         for (int p = 0; p < random_plies; ++p) {
             std::vector<Move> legal = generate_legal_moves(board);
             if (legal.empty()) break;
-            Move m = legal[static_cast<size_t>(rand()) % legal.size()];
+            Move m = legal[rand_index(legal.size())];
             UndoState undo;
             board.makeMove(m, undo);
         }

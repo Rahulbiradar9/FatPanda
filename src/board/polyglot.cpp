@@ -2,6 +2,7 @@
 #include "polyglot_constants.hpp"
 #include "board.hpp"
 #include "movegen.hpp"
+#include "utils/rng.hpp"
 #include <fstream>
 #include <random>
 #include <vector>
@@ -263,10 +264,7 @@ Move lookup_book_move(const Board& board, const std::string& book_path) {
     }
 
     if (total_weight > 0) {
-        static std::random_device rd;
-        static std::mt19937 gen(rd());
-        std::uniform_int_distribution<uint32_t> dis(0, total_weight - 1);
-        uint32_t target = dis(gen);
+        uint32_t target = rand_range(0, total_weight - 1);
 
         uint32_t running_sum = 0;
         for (const auto& cand : candidate_moves) {
@@ -278,10 +276,7 @@ Move lookup_book_move(const Board& board, const std::string& book_path) {
     }
 
     // Fallback if total_weight is 0
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    std::uniform_int_distribution<size_t> dis(0, candidate_moves.size() - 1);
-    return candidate_moves[dis(gen)].first;
+    return candidate_moves[rand_index(candidate_moves.size())].first;
 }
 
 } // namespace ChessEngine

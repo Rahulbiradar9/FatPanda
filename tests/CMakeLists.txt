@@ -37,6 +37,7 @@ add_executable(FatPandaTests
     endgame_test.cpp
     lazy_smp_test.cpp
     tuning_test.cpp
+    rng_test.cpp
 )
 
 # Link tests with googletest (gtest_main provides main()) and our engine logic library

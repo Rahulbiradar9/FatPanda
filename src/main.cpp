@@ -6,31 +6,47 @@
 #include "board/movegen.hpp"
 #include "evaluation/evaluation.hpp"
 #include "uci/uci.hpp"
+#include "utils/rng.hpp"
 
 int main(int argc, char* argv[]) {
-    if (argc > 1) {
-        std::string arg = argv[1];
-        if (arg == "--version" || arg == "-v" || arg == "-version" || arg == "version") {
-            std::cout << "FatPanda " << ChessEngine::get_version_string() << std::endl;
-            return 0;
+    // Check for --seed argument in CLI args
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if ((arg == "--seed" || arg == "-seed" || arg == "seed") && i + 1 < argc) {
+            try {
+                uint64_t seed = std::stoull(argv[i + 1]);
+                ChessEngine::set_global_seed(seed);
+            } catch (...) {}
+            break;
         }
-        if (arg == "--bench" || arg == "-bench" || arg == "bench") {
-            int depth = 13;
-            int threads = 1;
-            int hash_mb = 16;
-            if (argc > 2) depth = std::stoi(argv[2]);
-            if (argc > 3) threads = std::stoi(argv[3]);
-            if (argc > 4) hash_mb = std::stoi(argv[4]);
-            ChessEngine::run_benchmark(depth, threads, hash_mb);
-            return 0;
+    }
+
+    if (argc > 1) {
+        for (int i = 1; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "--version" || arg == "-v" || arg == "-version" || arg == "version") {
+                std::cout << "FatPanda " << ChessEngine::get_version_string() << std::endl;
+                return 0;
+            }
+            if (arg == "--bench" || arg == "-bench" || arg == "bench") {
+                int depth = 13;
+                int threads = 1;
+                int hash_mb = 16;
+                if (i + 1 < argc && argv[i + 1][0] != '-') depth = std::stoi(argv[++i]);
+                if (i + 1 < argc && argv[i + 1][0] != '-') threads = std::stoi(argv[++i]);
+                if (i + 1 < argc && argv[i + 1][0] != '-') hash_mb = std::stoi(argv[++i]);
+                ChessEngine::run_benchmark(depth, threads, hash_mb);
+                return 0;
+            }
         }
     }
 
     bool run_demo = false;
-    if (argc > 1) {
-        std::string arg = argv[1];
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
         if (arg == "--demo" || arg == "demo") {
             run_demo = true;
+            break;
         }
     }
 

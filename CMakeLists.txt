@@ -26,6 +26,7 @@ add_compile_definitions(GIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
 add_library(FatPandaLib STATIC
     src/utils/version.cpp
     src/utils/chess_types.cpp
+    src/utils/rng.cpp
     src/board/board.cpp
     src/board/bitboard.cpp
     src/board/fen.cpp
