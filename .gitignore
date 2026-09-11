@@ -27,3 +27,7 @@ Desktop.ini
 *.dylib
 *.dll
 *.exe
+
+# External tools and large binaries
+tools/stockfish/
+err.txt

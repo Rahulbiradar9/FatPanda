@@ -708,6 +708,11 @@ bool is_pseudo_legal(const Board& board, Move m) {
 
     if (target_color == us) return false;
 
+    // A quiet move cannot land on an occupied square
+    if (!m.isCapture() && target != Piece::None) return false;
+    // A capture move cannot land on an empty square unless en-passant
+    if (m.isCapture() && !m.isEnPassant() && target == Piece::None) return false;
+
     if (pt == PieceType::Pawn) {
         if (m.isEnPassant()) {
             return to == board.get_en_passant();

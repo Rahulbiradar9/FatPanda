@@ -450,7 +450,7 @@ public:
                 stage_ = PickerStage::KILLER_2;
                 if (ply_ < MAX_PLY) {
                     Move k1 = info_.killer_moves[0][ply_];
-                    if (k1 != MOVE_NONE && k1 != tt_move_ && !k1.isCapture() && is_pseudo_legal(board_, k1)) {
+                    if (k1 != MOVE_NONE && k1 != tt_move_ && !k1.isCapture() && board_.get_piece(k1.get_to()) == Piece::None && is_pseudo_legal(board_, k1)) {
                         killer_1_ = k1;
                         return k1;
                     }
@@ -461,7 +461,7 @@ public:
                 stage_ = PickerStage::COUNTER_MOVE;
                 if (ply_ < MAX_PLY) {
                     Move k2 = info_.killer_moves[1][ply_];
-                    if (k2 != MOVE_NONE && k2 != tt_move_ && k2 != killer_1_ && !k2.isCapture() && is_pseudo_legal(board_, k2)) {
+                    if (k2 != MOVE_NONE && k2 != tt_move_ && k2 != killer_1_ && !k2.isCapture() && board_.get_piece(k2.get_to()) == Piece::None && is_pseudo_legal(board_, k2)) {
                         killer_2_ = k2;
                         return k2;
                     }
@@ -472,7 +472,7 @@ public:
                 stage_ = PickerStage::GEN_QUIETS;
                 if (prev1_.piece != Piece::None && prev1_.to != Square::None) {
                     Move cm = info_.counter_moves[static_cast<int>(prev1_.piece)][static_cast<int>(prev1_.to)];
-                    if (cm != MOVE_NONE && cm != tt_move_ && cm != killer_1_ && cm != killer_2_ && !cm.isCapture() && is_pseudo_legal(board_, cm)) {
+                    if (cm != MOVE_NONE && cm != tt_move_ && cm != killer_1_ && cm != killer_2_ && !cm.isCapture() && board_.get_piece(cm.get_to()) == Piece::None && is_pseudo_legal(board_, cm)) {
                         counter_move_ = cm;
                         return cm;
                     }
@@ -1592,6 +1592,7 @@ SearchResult search_thread(Board& board, int max_depth, int thread_id) {
 }
 
 SearchResult search(Board& board, int max_depth) {
+    g_start_time = std::chrono::steady_clock::now();
     g_tt.new_search();
 
     if (g_num_threads <= 1) {

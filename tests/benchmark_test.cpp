@@ -41,6 +41,9 @@ TEST(BenchmarkTest, PerftPerformanceNps) {
 }
 
 TEST(BenchmarkTest, SearchPerformanceNps) {
+    g_stop_search.store(false);
+    g_time_limit_soft_ms = -1;
+    g_time_limit_hard_ms = -1;
     Board board;
     board.reset_to_start();
 
@@ -164,6 +167,9 @@ TEST(BenchmarkTest, SearchOptimizationsIndependentBenchmark) {
 }
 
 TEST(BenchmarkTest, SingularExtensionDepth12Comparison) {
+    g_stop_search.store(false);
+    g_time_limit_soft_ms = -1;
+    g_time_limit_hard_ms = -1;
     Board board;
     // Standard test position (Kiwipete)
     ASSERT_TRUE(board.loadFromFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"));

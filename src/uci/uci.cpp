@@ -1051,8 +1051,9 @@ int run_epd_test(const std::string& filepath, int movetime_ms) {
     std::cout << "\n======================================================\n";
     std::cout << "EPD Results: " << solved << " / " << total << " solved (" 
               << std::fixed << std::setprecision(1) << pct << "%)\n";
-    std::cout << "Total Time : " << elapsed_ms << " ms | NPS: " << nps << "\n";
-    std::cout << "======================================================\n" << std::endl;
+    g_time_limit_soft_ms = -1;
+    g_time_limit_hard_ms = -1;
+    g_stop_search.store(false);
 
     return solved;
 }

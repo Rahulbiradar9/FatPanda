@@ -287,14 +287,12 @@ bool Board::makeMove(Move m, UndoState& undo) {
     Color us = side_to_move_;
     Color opponent = ~us;
 
-    // Determine and save captured piece
+    // Determine and save captured piece based on actual board occupancy and en-passant
     Piece captured = Piece::None;
-    if (m.isCapture()) {
-        if (m.isEnPassant()) {
-            captured = (us == Color::White) ? Piece::BlackPawn : Piece::WhitePawn;
-        } else {
-            captured = get_piece(to);
-        }
+    if (m.isEnPassant()) {
+        captured = (us == Color::White) ? Piece::BlackPawn : Piece::WhitePawn;
+    } else {
+        captured = get_piece(to);
     }
     undo.capturedPiece = captured;
 
@@ -313,7 +311,7 @@ bool Board::makeMove(Move m, UndoState& undo) {
         nnue_added[nnue_num_added++] = {moving_piece, to};
     }
 
-    if (m.isCapture()) {
+    if (captured != Piece::None) {
         if (m.isEnPassant()) {
             Square cap_sq = make_square(get_file(to), get_rank(from));
             nnue_removed[nnue_num_removed++] = {captured, cap_sq};
@@ -359,12 +357,12 @@ bool Board::makeMove(Move m, UndoState& undo) {
     }
 
     // Reset halfmove clock if pawn moves or captures
-    if (get_piece_type(moving_piece) == PieceType::Pawn || m.isCapture()) {
+    if (get_piece_type(moving_piece) == PieceType::Pawn || captured != Piece::None) {
         halfmove_clock_ = 0;
     }
 
     // Handle captures
-    if (m.isCapture()) {
+    if (captured != Piece::None) {
         if (m.isEnPassant()) {
             Square cap_sq = make_square(get_file(to), get_rank(from));
             set_piece(cap_sq, Piece::None);
@@ -479,7 +477,7 @@ void Board::unmakeMove(Move m, const UndoState& undo) {
     }
 
     // 4. Restore captured piece
-    if (m.isCapture()) {
+    if (undo.capturedPiece != Piece::None) {
         if (m.isEnPassant()) {
             Square cap_sq = make_square(get_file(to), get_rank(from));
             set_piece(cap_sq, undo.capturedPiece);
