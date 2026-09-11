@@ -13,6 +13,9 @@ inline Square get_black_square(Square sq) {
     return static_cast<Square>(static_cast<uint8_t>(sq) ^ 56);
 }
 
+constexpr Bitboard LIGHT_SQUARES = 0x55AA55AA55AA55AAULL;
+constexpr Bitboard DARK_SQUARES  = 0xAA55AA55AA55AA55ULL;
+
 // Generate bitboard masks representing files A-H
 constexpr std::array<Bitboard, 8> FILE_MASKS = []() {
     std::array<Bitboard, 8> masks{};
@@ -149,6 +152,8 @@ int evaluateMobility(const Board& board) {
     while (w_bishops) {
         Square sq = pop_lsb(w_bishops);
         score += count_bits(get_bishop_attacks(sq, both_occ) & ~white_occ) * 3;
+        Bitboard same_color_pawns = (test_bit(LIGHT_SQUARES, sq)) ? (w_pawns & LIGHT_SQUARES) : (w_pawns & DARK_SQUARES);
+        score -= static_cast<int>(count_bits(same_color_pawns)) * 3;
     }
 
     Bitboard w_rooks = board.get_piece_bitboard(Piece::WhiteRook);
@@ -188,6 +193,8 @@ int evaluateMobility(const Board& board) {
     while (b_bishops) {
         Square sq = pop_lsb(b_bishops);
         score -= count_bits(get_bishop_attacks(sq, both_occ) & ~black_occ) * 3;
+        Bitboard same_color_pawns = (test_bit(LIGHT_SQUARES, sq)) ? (b_pawns & LIGHT_SQUARES) : (b_pawns & DARK_SQUARES);
+        score += static_cast<int>(count_bits(same_color_pawns)) * 3;
     }
 
     Bitboard b_rooks = board.get_piece_bitboard(Piece::BlackRook);
@@ -248,6 +255,9 @@ int evaluatePawnStructure(const Board& board) {
         Bitboard passed_mask = get_passed_pawn_mask(sq, Color::White);
         if ((passed_mask & b_pawns) == EMPTY_BOARD) {
             score += 15 + 10 * rank; // More valuable as it advances
+            if (get_pawn_attacks(sq, Color::Black) & w_pawns) {
+                score += 15;
+            }
         }
     }
 
@@ -274,6 +284,9 @@ int evaluatePawnStructure(const Board& board) {
         Bitboard passed_mask = get_passed_pawn_mask(sq, Color::Black);
         if ((passed_mask & w_pawns) == EMPTY_BOARD) {
             score -= 15 + 10 * (7 - rank);
+            if (get_pawn_attacks(sq, Color::White) & b_pawns) {
+                score -= 15;
+            }
         }
     }
 
