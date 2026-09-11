@@ -436,14 +436,18 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
     }
 
     // Generate moves: if in check, generate all moves (check evasions); otherwise, only captures/promotions
-    std::vector<Move> moves = in_check ? generate_legal_moves(board) : generate_legal_captures(board);
-    
-    // Checkmate/stalemate check inside quiescence search if we are in check and have no moves
-    if (in_check && moves.empty()) {
-        return -MATE_SCORE + ply;
+    MoveList moves;
+    if (in_check) {
+        generatePseudoLegalMoves(board, moves);
+        for (size_t i = 0; i < moves.size(); ++i) {
+            moves.scores[i] = score_move(board, moves[i], MOVE_NONE, ply, info);
+        }
+    } else {
+        generatePseudoLegalCaptures(board, moves);
+        for (size_t i = 0; i < moves.size(); ++i) {
+            moves.scores[i] = score_move(board, moves[i], MOVE_NONE, ply, info);
+        }
     }
-
-    order_moves(board, moves, MOVE_NONE, ply, info);
 
     bool endgame = false;
     if (!in_check) {
@@ -455,12 +459,21 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
         endgame = (non_pawn_count <= 2);
     }
 
-    for (Move m : moves) {
+    int legal_moves_searched = 0;
+
+    for (size_t i = 0; i < moves.size(); ++i) {
+        size_t best_i = i;
+        for (size_t j = i + 1; j < moves.size(); ++j) {
+            if (moves.scores[j] > moves.scores[best_i]) {
+                best_i = j;
+            }
+        }
+        std::swap(moves.moves[i], moves.moves[best_i]);
+        std::swap(moves.scores[i], moves.scores[best_i]);
+        Move m = moves.moves[i];
+
         if (!in_check) {
             // (1) Delta Pruning:
-            // If even with winning the captured piece plus a safety delta margin,
-            // we cannot raise alpha, skip searching this capture.
-            // Disabled in endgames to prevent missing subtle pawn promotions or zugzwang lines.
             if (!endgame && !m.isPromotion()) {
                 int capture_val = get_capture_value(board, m);
                 if (stand_pat + capture_val + g_delta_margin < alpha) {
@@ -469,7 +482,6 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
             }
 
             // (2) SEE Pruning:
-            // Skip captures where static exchange evaluation is negative (SEE < 0).
             if (g_search_settings.see && see(board, m) < 0) {
                 continue; // Prune losing captures
             }
@@ -480,18 +492,24 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
             continue;
         }
 
+        legal_moves_searched++;
+
         int score = -quiescence(board, -beta, -alpha, ply + 1, info);
         board.unmakeMove(m, undo);
 
         if (score >= beta) {
-            return score; // Beta cutoff
+            return beta;
         }
         if (score > alpha) {
             alpha = score;
         }
     }
 
-    // TT record in quiescence
+    // Checkmate/stalemate check inside quiescence search if we are in check and have no moves
+    if (in_check && legal_moves_searched == 0) {
+        return -MATE_SCORE + ply;
+    }
+
     uint8_t flag = TT_ALPHA;
     if (alpha >= beta) {
         flag = TT_BETA;
@@ -641,15 +659,26 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         && std::abs(beta) < MATE_SCORE - MAX_PLY)
     {
         int probcut_beta = beta + g_probcut_margin;
-
-        // Skip ProbCut if a deep enough TT entry already proved the score is below probcut_beta
         bool skip_probcut = (tt_hit && tt_entry.depth >= depth - 3 && tt_entry.score < probcut_beta);
 
         if (!skip_probcut) {
-            std::vector<Move> noisy_moves = generate_legal_captures(board);
-            order_moves(board, noisy_moves, tt_move, ply, info, prev1, prev2);
+            MoveList noisy_moves;
+            generatePseudoLegalCaptures(board, noisy_moves);
+            for (size_t i = 0; i < noisy_moves.size(); ++i) {
+                noisy_moves.scores[i] = score_move(board, noisy_moves[i], tt_move, ply, info, prev1, prev2);
+            }
 
-            for (Move m : noisy_moves) {
+            for (size_t i = 0; i < noisy_moves.size(); ++i) {
+                size_t best_i = i;
+                for (size_t j = i + 1; j < noisy_moves.size(); ++j) {
+                    if (noisy_moves.scores[j] > noisy_moves.scores[best_i]) {
+                        best_i = j;
+                    }
+                }
+                std::swap(noisy_moves.moves[i], noisy_moves.moves[best_i]);
+                std::swap(noisy_moves.scores[i], noisy_moves.scores[best_i]);
+                Move m = noisy_moves.moves[i];
+
                 Piece moved_p = board.get_piece(m.get_from());
                 Square to_sq = m.get_to();
 
@@ -658,10 +687,8 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
                     continue;
                 }
 
-                // 1. Fast shallow search at depth - 4 with null window around probcut_beta
                 int score = -search_alphabeta(board, depth - 4, -probcut_beta, -probcut_beta + 1, ply + 1, info, MOVE_NONE, {moved_p, to_sq}, prev1);
 
-                // 2. If it exceeds probcut_beta, run verification search at depth - 3
                 if (score >= probcut_beta) {
                     score = -search_alphabeta(board, depth - 3, -probcut_beta, -probcut_beta + 1, ply + 1, info, MOVE_NONE, {moved_p, to_sq}, prev1);
                 }
@@ -669,7 +696,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
                 board.unmakeMove(m, undo);
 
                 if (score >= probcut_beta) {
-                    return probcut_beta; // Fail-high cutoff
+                    return probcut_beta;
                 }
             }
         }
@@ -694,18 +721,13 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         depth -= IIR_REDUCTION;
     }
 
-    std::vector<Move> moves = generate_legal_moves(board);
+    MoveList moves;
+    generatePseudoLegalMoves(board, moves);
 
-    // Stalemate or Checkmate
-    if (moves.empty()) {
-        if (is_in_check(board, board.get_side_to_move())) {
-            return -MATE_SCORE + ply; // Checkmate
-        }
-        return 0; // Stalemate
+    // Score all pseudo-legal moves into moves.scores
+    for (size_t i = 0; i < moves.size(); ++i) {
+        moves.scores[i] = score_move(board, moves[i], tt_move, ply, info, prev1, prev2);
     }
-
-    // Order moves, prioritizing TT best move and combined history
-    order_moves(board, moves, tt_move, ply, info, prev1, prev2);
 
     // Singular Extension:
     // Before searching the TT move, run a reduced-depth null-window search excluding the TT move
@@ -742,7 +764,17 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     int moves_searched = 0;
     int quiet_moves_searched = 0;
 
-    for (Move m : moves) {
+    for (size_t i = 0; i < moves.size(); ++i) {
+        // Selection sort to pick the best remaining move
+        size_t best_i = i;
+        for (size_t j = i + 1; j < moves.size(); ++j) {
+            if (moves.scores[j] > moves.scores[best_i]) {
+                best_i = j;
+            }
+        }
+        std::swap(moves.moves[i], moves.moves[best_i]);
+        std::swap(moves.scores[i], moves.scores[best_i]);
+        Move m = moves.moves[i];
         if (m == excluded_move) {
             continue;
         }
@@ -914,6 +946,10 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         if (excluded_move != MOVE_NONE) {
             return alpha;
         }
+        if (in_check) {
+            return -MATE_SCORE + ply; // Checkmate
+        }
+        return 0; // Stalemate
     }
 
     // Correction History Update:

@@ -9,15 +9,15 @@ namespace ChessEngine {
 uint64_t runPerft(Board& board, int depth) {
     if (depth <= 0) return 1ULL;
 
-    std::vector<Move> moves = generateLegalMoves(board);
-    if (depth == 1) return moves.size();
+    MoveList moves;
+    generatePseudoLegalMoves(board, moves);
 
     uint64_t total_nodes = 0;
-    for (Move m : moves) {
+    for (size_t i = 0; i < moves.size(); ++i) {
         UndoState undo;
-        if (board.makeMove(m, undo)) {
-            total_nodes += runPerft(board, depth - 1);
-            board.unmakeMove(m, undo);
+        if (board.makeMove(moves[i], undo)) {
+            total_nodes += (depth == 1 ? 1ULL : runPerft(board, depth - 1));
+            board.unmakeMove(moves[i], undo);
         }
     }
     return total_nodes;

@@ -1,5 +1,6 @@
 #include "movegen.hpp"
 #include "attacks.hpp"
+#include <algorithm>
 
 namespace ChessEngine {
 
@@ -53,10 +54,330 @@ bool is_in_check(const Board& board, Color color) {
     return is_square_attacked(board, king_sq, ~color);
 }
 
-std::vector<Move> generatePseudoLegalMoves(const Board& board) {
-    std::vector<Move> moves;
-    moves.reserve(100);
+void generatePseudoLegalCaptures(const Board& board, MoveList& moves) {
+    Color us = board.get_side_to_move();
+    Color them = ~us;
+    Bitboard their_occ = board.get_occupancy(them);
+    Bitboard both_occ = board.get_occupancy(Color::None);
 
+    // 1. Pawn captures & promotions
+    Bitboard pawns = board.get_piece_bitboard(make_piece(us, PieceType::Pawn));
+    while (pawns) {
+        Square from = pop_lsb(pawns);
+        if (us == Color::White) {
+            // Queen promotions on push
+            Square to_push = static_cast<Square>(static_cast<uint8_t>(from) + 8);
+            if (!test_bit(both_occ, to_push) && get_rank(to_push) == 7) {
+                moves.push_back(Move(from, to_push, PieceType::None, PieceType::Queen, MoveFlag::PROMO_Q));
+                moves.push_back(Move(from, to_push, PieceType::None, PieceType::Knight, MoveFlag::PROMO_N));
+                moves.push_back(Move(from, to_push, PieceType::None, PieceType::Rook, MoveFlag::PROMO_R));
+                moves.push_back(Move(from, to_push, PieceType::None, PieceType::Bishop, MoveFlag::PROMO_B));
+            }
+            // Captures
+            Bitboard attacks = get_pawn_attacks(from, Color::White);
+            Bitboard targets = attacks & their_occ;
+            while (targets) {
+                Square to_cap = pop_lsb(targets);
+                PieceType cap_type = get_piece_type(board.get_piece(to_cap));
+                if (get_rank(to_cap) == 7) {
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Queen, MoveFlag::PROMO_Q_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Knight, MoveFlag::PROMO_N_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Rook, MoveFlag::PROMO_R_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Bishop, MoveFlag::PROMO_B_CAP));
+                } else {
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::None, MoveFlag::CAPTURE));
+                }
+            }
+            // En Passant
+            Square ep_sq = board.get_en_passant();
+            if (ep_sq != Square::None && test_bit(attacks, ep_sq)) {
+                moves.push_back(Move(from, ep_sq, PieceType::Pawn, PieceType::None, MoveFlag::EN_PASSANT));
+            }
+        } else {
+            Square to_push = static_cast<Square>(static_cast<uint8_t>(from) - 8);
+            if (!test_bit(both_occ, to_push) && get_rank(to_push) == 0) {
+                moves.push_back(Move(from, to_push, PieceType::None, PieceType::Queen, MoveFlag::PROMO_Q));
+                moves.push_back(Move(from, to_push, PieceType::None, PieceType::Knight, MoveFlag::PROMO_N));
+                moves.push_back(Move(from, to_push, PieceType::None, PieceType::Rook, MoveFlag::PROMO_R));
+                moves.push_back(Move(from, to_push, PieceType::None, PieceType::Bishop, MoveFlag::PROMO_B));
+            }
+            Bitboard attacks = get_pawn_attacks(from, Color::Black);
+            Bitboard targets = attacks & their_occ;
+            while (targets) {
+                Square to_cap = pop_lsb(targets);
+                PieceType cap_type = get_piece_type(board.get_piece(to_cap));
+                if (get_rank(to_cap) == 0) {
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Queen, MoveFlag::PROMO_Q_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Knight, MoveFlag::PROMO_N_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Rook, MoveFlag::PROMO_R_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Bishop, MoveFlag::PROMO_B_CAP));
+                } else {
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::None, MoveFlag::CAPTURE));
+                }
+            }
+            Square ep_sq = board.get_en_passant();
+            if (ep_sq != Square::None && test_bit(attacks, ep_sq)) {
+                moves.push_back(Move(from, ep_sq, PieceType::Pawn, PieceType::None, MoveFlag::EN_PASSANT));
+            }
+        }
+    }
+
+    // 2. Knight captures
+    Bitboard knights = board.get_piece_bitboard(make_piece(us, PieceType::Knight));
+    while (knights) {
+        Square from = pop_lsb(knights);
+        Bitboard targets = get_knight_attacks(from) & their_occ;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            PieceType cap_type = get_piece_type(board.get_piece(to));
+            moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
+        }
+    }
+
+    // 3. Bishop captures
+    Bitboard bishops = board.get_piece_bitboard(make_piece(us, PieceType::Bishop));
+    while (bishops) {
+        Square from = pop_lsb(bishops);
+        Bitboard targets = get_bishop_attacks(from, both_occ) & their_occ;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            PieceType cap_type = get_piece_type(board.get_piece(to));
+            moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
+        }
+    }
+
+    // 4. Rook captures
+    Bitboard rooks = board.get_piece_bitboard(make_piece(us, PieceType::Rook));
+    while (rooks) {
+        Square from = pop_lsb(rooks);
+        Bitboard targets = get_rook_attacks(from, both_occ) & their_occ;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            PieceType cap_type = get_piece_type(board.get_piece(to));
+            moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
+        }
+    }
+
+    // 5. Queen captures
+    Bitboard queens = board.get_piece_bitboard(make_piece(us, PieceType::Queen));
+    while (queens) {
+        Square from = pop_lsb(queens);
+        Bitboard targets = get_queen_attacks(from, both_occ) & their_occ;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            PieceType cap_type = get_piece_type(board.get_piece(to));
+            moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
+        }
+    }
+
+    // 6. King captures
+    Bitboard king = board.get_piece_bitboard(make_piece(us, PieceType::King));
+    if (king) {
+        Square from = pop_lsb(king);
+        Bitboard targets = get_king_attacks(from) & their_occ;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            PieceType cap_type = get_piece_type(board.get_piece(to));
+            moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
+        }
+    }
+}
+
+void generatePseudoLegalQuiets(const Board& board, MoveList& moves) {
+    Color us = board.get_side_to_move();
+    Bitboard both_occ = board.get_occupancy(Color::None);
+    Bitboard empty_sqs = ~both_occ;
+
+    // 1. Pawn quiet pushes
+    Bitboard pawns = board.get_piece_bitboard(make_piece(us, PieceType::Pawn));
+    while (pawns) {
+        Square from = pop_lsb(pawns);
+        int rank = get_rank(from);
+
+        if (us == Color::White) {
+            Square to_push = static_cast<Square>(static_cast<uint8_t>(from) + 8);
+            if (!test_bit(both_occ, to_push)) {
+                if (get_rank(to_push) != 7) {
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::None, MoveFlag::NORMAL));
+                    if (rank == 1) {
+                        Square to_double = static_cast<Square>(static_cast<uint8_t>(from) + 16);
+                        if (!test_bit(both_occ, to_double)) {
+                            moves.push_back(Move(from, to_double, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH));
+                        }
+                    }
+                }
+            }
+        } else {
+            Square to_push = static_cast<Square>(static_cast<uint8_t>(from) - 8);
+            if (!test_bit(both_occ, to_push)) {
+                if (get_rank(to_push) != 0) {
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::None, MoveFlag::NORMAL));
+                    if (rank == 6) {
+                        Square to_double = static_cast<Square>(static_cast<uint8_t>(from) - 16);
+                        if (!test_bit(both_occ, to_double)) {
+                            moves.push_back(Move(from, to_double, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Knight quiet moves
+    Bitboard knights = board.get_piece_bitboard(make_piece(us, PieceType::Knight));
+    while (knights) {
+        Square from = pop_lsb(knights);
+        Bitboard targets = get_knight_attacks(from) & empty_sqs;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
+        }
+    }
+
+    // 3. Bishop quiet moves
+    Bitboard bishops = board.get_piece_bitboard(make_piece(us, PieceType::Bishop));
+    while (bishops) {
+        Square from = pop_lsb(bishops);
+        Bitboard targets = get_bishop_attacks(from, both_occ) & empty_sqs;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
+        }
+    }
+
+    // 4. Rook quiet moves
+    Bitboard rooks = board.get_piece_bitboard(make_piece(us, PieceType::Rook));
+    while (rooks) {
+        Square from = pop_lsb(rooks);
+        Bitboard targets = get_rook_attacks(from, both_occ) & empty_sqs;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
+        }
+    }
+
+    // 5. Queen quiet moves
+    Bitboard queens = board.get_piece_bitboard(make_piece(us, PieceType::Queen));
+    while (queens) {
+        Square from = pop_lsb(queens);
+        Bitboard targets = get_queen_attacks(from, both_occ) & empty_sqs;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
+        }
+    }
+
+    // 6. King quiet moves & Castling
+    Bitboard king = board.get_piece_bitboard(make_piece(us, PieceType::King));
+    if (king) {
+        Square from = pop_lsb(king);
+        Bitboard targets = get_king_attacks(from) & empty_sqs;
+        while (targets) {
+            Square to = pop_lsb(targets);
+            moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
+        }
+
+        // Castling rights (King must not be in check right now)
+        if (!is_in_check(board, us)) {
+            uint8_t rights = board.get_castling_rights();
+            int rank = (us == Color::White) ? 0 : 7;
+            Color opponent = ~us;
+            int k_from_file = get_file(from);
+
+            // 1. King-side Castling
+            uint8_t ks_flag = (us == Color::White) ? Castling::WK : Castling::BK;
+            if (rights & ks_flag) {
+                Square r_from = board.get_castling_rook(us, true);
+                if (r_from != Square::None) {
+                    int r_from_file = get_file(r_from);
+                    int k_to_file = 6;
+                    int r_to_file = 5;
+
+                    int min_f = std::min({k_from_file, k_to_file, r_from_file, r_to_file});
+                    int max_f = std::max({k_from_file, k_to_file, r_from_file, r_to_file});
+                    bool path_clear = true;
+
+                    for (int f = min_f; f <= max_f; ++f) {
+                        Square sq = make_square(f, rank);
+                        if (sq != from && sq != r_from) {
+                            if (test_bit(both_occ, sq)) {
+                                path_clear = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (path_clear) {
+                        bool path_safe = true;
+                        int step = (k_to_file > k_from_file) ? 1 : ((k_to_file < k_from_file) ? -1 : 0);
+                        if (step != 0) {
+                            for (int f = k_from_file + step; ; f += step) {
+                                Square sq = make_square(f, rank);
+                                if (is_square_attacked(board, sq, opponent)) {
+                                    path_safe = false;
+                                    break;
+                                }
+                                if (f == k_to_file) break;
+                            }
+                        }
+
+                        if (path_safe) {
+                            Square dest_sq = g_chess960 ? r_from : make_square(6, rank);
+                            moves.push_back(Move(from, dest_sq, PieceType::None, PieceType::None, MoveFlag::CASTLE_K));
+                        }
+                    }
+                }
+            }
+
+            // 2. Queen-side Castling
+            uint8_t qs_flag = (us == Color::White) ? Castling::WQ : Castling::BQ;
+            if (rights & qs_flag) {
+                Square r_from = board.get_castling_rook(us, false);
+                if (r_from != Square::None) {
+                    int r_from_file = get_file(r_from);
+                    int k_to_file = 2;
+                    int r_to_file = 3;
+
+                    int min_f = std::min({k_from_file, k_to_file, r_from_file, r_to_file});
+                    int max_f = std::max({k_from_file, k_to_file, r_from_file, r_to_file});
+                    bool path_clear = true;
+
+                    for (int f = min_f; f <= max_f; ++f) {
+                        Square sq = make_square(f, rank);
+                        if (sq != from && sq != r_from) {
+                            if (test_bit(both_occ, sq)) {
+                                path_clear = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (path_clear) {
+                        bool path_safe = true;
+                        int step = (k_to_file > k_from_file) ? 1 : ((k_to_file < k_from_file) ? -1 : 0);
+                        if (step != 0) {
+                            for (int f = k_from_file + step; ; f += step) {
+                                Square sq = make_square(f, rank);
+                                if (is_square_attacked(board, sq, opponent)) {
+                                    path_safe = false;
+                                    break;
+                                }
+                                if (f == k_to_file) break;
+                            }
+                        }
+
+                        if (path_safe) {
+                            Square dest_sq = g_chess960 ? r_from : make_square(2, rank);
+                            moves.push_back(Move(from, dest_sq, PieceType::None, PieceType::None, MoveFlag::CASTLE_Q));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void generatePseudoLegalMoves(const Board& board, MoveList& moves) {
     Color us = board.get_side_to_move();
     Color them = ~us;
     Bitboard our_occ = board.get_occupancy(us);
@@ -74,17 +395,17 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
             Square to_push = static_cast<Square>(static_cast<uint8_t>(from) + 8);
             if (!test_bit(both_occ, to_push)) {
                 if (get_rank(to_push) == 7) {
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Knight, MoveFlag::PROMO_N);
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Bishop, MoveFlag::PROMO_B);
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Rook, MoveFlag::PROMO_R);
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Queen, MoveFlag::PROMO_Q);
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::Knight, MoveFlag::PROMO_N));
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::Bishop, MoveFlag::PROMO_B));
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::Rook, MoveFlag::PROMO_R));
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::Queen, MoveFlag::PROMO_Q));
                 } else {
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::None, MoveFlag::NORMAL);
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::None, MoveFlag::NORMAL));
                     // Double Push
                     if (rank == 1) {
                         Square to_double = static_cast<Square>(static_cast<uint8_t>(from) + 16);
                         if (!test_bit(both_occ, to_double)) {
-                            moves.emplace_back(from, to_double, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH);
+                            moves.push_back(Move(from, to_double, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH));
                         }
                     }
                 }
@@ -97,36 +418,36 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
                 Square to_cap = pop_lsb(capture_targets);
                 PieceType cap_type = get_piece_type(board.get_piece(to_cap));
                 if (get_rank(to_cap) == 7) {
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::Knight, MoveFlag::PROMO_N_CAP);
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::Bishop, MoveFlag::PROMO_B_CAP);
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::Rook, MoveFlag::PROMO_R_CAP);
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::Queen, MoveFlag::PROMO_Q_CAP);
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Knight, MoveFlag::PROMO_N_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Bishop, MoveFlag::PROMO_B_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Rook, MoveFlag::PROMO_R_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Queen, MoveFlag::PROMO_Q_CAP));
                 } else {
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::None, MoveFlag::CAPTURE);
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::None, MoveFlag::CAPTURE));
                 }
             }
 
             // En Passant
             Square ep_sq = board.get_en_passant();
             if (ep_sq != Square::None && test_bit(attacks, ep_sq)) {
-                moves.emplace_back(from, ep_sq, PieceType::Pawn, PieceType::None, MoveFlag::EN_PASSANT);
+                moves.push_back(Move(from, ep_sq, PieceType::Pawn, PieceType::None, MoveFlag::EN_PASSANT));
             }
         } else {
             // Black pawn pushes
             Square to_push = static_cast<Square>(static_cast<uint8_t>(from) - 8);
             if (!test_bit(both_occ, to_push)) {
                 if (get_rank(to_push) == 0) {
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Knight, MoveFlag::PROMO_N);
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Bishop, MoveFlag::PROMO_B);
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Rook, MoveFlag::PROMO_R);
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::Queen, MoveFlag::PROMO_Q);
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::Knight, MoveFlag::PROMO_N));
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::Bishop, MoveFlag::PROMO_B));
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::Rook, MoveFlag::PROMO_R));
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::Queen, MoveFlag::PROMO_Q));
                 } else {
-                    moves.emplace_back(from, to_push, PieceType::None, PieceType::None, MoveFlag::NORMAL);
+                    moves.push_back(Move(from, to_push, PieceType::None, PieceType::None, MoveFlag::NORMAL));
                     // Double Push
                     if (rank == 6) {
                         Square to_double = static_cast<Square>(static_cast<uint8_t>(from) - 16);
                         if (!test_bit(both_occ, to_double)) {
-                            moves.emplace_back(from, to_double, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH);
+                            moves.push_back(Move(from, to_double, PieceType::None, PieceType::None, MoveFlag::DOUBLE_PUSH));
                         }
                     }
                 }
@@ -139,19 +460,19 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
                 Square to_cap = pop_lsb(capture_targets);
                 PieceType cap_type = get_piece_type(board.get_piece(to_cap));
                 if (get_rank(to_cap) == 0) {
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::Knight, MoveFlag::PROMO_N_CAP);
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::Bishop, MoveFlag::PROMO_B_CAP);
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::Rook, MoveFlag::PROMO_R_CAP);
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::Queen, MoveFlag::PROMO_Q_CAP);
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Knight, MoveFlag::PROMO_N_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Bishop, MoveFlag::PROMO_B_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Rook, MoveFlag::PROMO_R_CAP));
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::Queen, MoveFlag::PROMO_Q_CAP));
                 } else {
-                    moves.emplace_back(from, to_cap, cap_type, PieceType::None, MoveFlag::CAPTURE);
+                    moves.push_back(Move(from, to_cap, cap_type, PieceType::None, MoveFlag::CAPTURE));
                 }
             }
 
             // En Passant
             Square ep_sq = board.get_en_passant();
             if (ep_sq != Square::None && test_bit(attacks, ep_sq)) {
-                moves.emplace_back(from, ep_sq, PieceType::Pawn, PieceType::None, MoveFlag::EN_PASSANT);
+                moves.push_back(Move(from, ep_sq, PieceType::Pawn, PieceType::None, MoveFlag::EN_PASSANT));
             }
         }
     }
@@ -165,9 +486,9 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
                 PieceType cap_type = get_piece_type(board.get_piece(to));
-                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
+                moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
             } else {
-                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
+                moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
             }
         }
     }
@@ -181,9 +502,9 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
                 PieceType cap_type = get_piece_type(board.get_piece(to));
-                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
+                moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
             } else {
-                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
+                moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
             }
         }
     }
@@ -197,9 +518,9 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
                 PieceType cap_type = get_piece_type(board.get_piece(to));
-                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
+                moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
             } else {
-                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
+                moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
             }
         }
     }
@@ -213,9 +534,9 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
                 PieceType cap_type = get_piece_type(board.get_piece(to));
-                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
+                moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
             } else {
-                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
+                moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
             }
         }
     }
@@ -229,9 +550,9 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
             Square to = pop_lsb(targets);
             if (test_bit(their_occ, to)) {
                 PieceType cap_type = get_piece_type(board.get_piece(to));
-                moves.emplace_back(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE);
+                moves.push_back(Move(from, to, cap_type, PieceType::None, MoveFlag::CAPTURE));
             } else {
-                moves.emplace_back(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL);
+                moves.push_back(Move(from, to, PieceType::None, PieceType::None, MoveFlag::NORMAL));
             }
         }
 
@@ -251,7 +572,6 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
                     int k_to_file = 6;
                     int r_to_file = 5;
 
-                    // All squares between king and rook start/end positions (except start squares) must be empty
                     int min_f = std::min({k_from_file, k_to_file, r_from_file, r_to_file});
                     int max_f = std::max({k_from_file, k_to_file, r_from_file, r_to_file});
                     bool path_clear = true;
@@ -267,7 +587,6 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
                     }
 
                     if (path_clear) {
-                        // All squares the king passes through (including k_to, but excluding from) must not be attacked
                         bool path_safe = true;
                         int step = (k_to_file > k_from_file) ? 1 : ((k_to_file < k_from_file) ? -1 : 0);
                         if (step != 0) {
@@ -283,7 +602,7 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
 
                         if (path_safe) {
                             Square dest_sq = g_chess960 ? r_from : make_square(6, rank);
-                            moves.emplace_back(from, dest_sq, PieceType::None, PieceType::None, MoveFlag::CASTLE_K);
+                            moves.push_back(Move(from, dest_sq, PieceType::None, PieceType::None, MoveFlag::CASTLE_K));
                         }
                     }
                 }
@@ -298,7 +617,6 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
                     int k_to_file = 2;
                     int r_to_file = 3;
 
-                    // All squares between king and rook start/end positions (except start squares) must be empty
                     int min_f = std::min({k_from_file, k_to_file, r_from_file, r_to_file});
                     int max_f = std::max({k_from_file, k_to_file, r_from_file, r_to_file});
                     bool path_clear = true;
@@ -314,7 +632,6 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
                     }
 
                     if (path_clear) {
-                        // All squares the king passes through (including k_to, but excluding from) must not be attacked
                         bool path_safe = true;
                         int step = (k_to_file > k_from_file) ? 1 : ((k_to_file < k_from_file) ? -1 : 0);
                         if (step != 0) {
@@ -330,15 +647,19 @@ std::vector<Move> generatePseudoLegalMoves(const Board& board) {
 
                         if (path_safe) {
                             Square dest_sq = g_chess960 ? r_from : make_square(2, rank);
-                            moves.emplace_back(from, dest_sq, PieceType::None, PieceType::None, MoveFlag::CASTLE_Q);
+                            moves.push_back(Move(from, dest_sq, PieceType::None, PieceType::None, MoveFlag::CASTLE_Q));
                         }
                     }
                 }
             }
         }
     }
+}
 
-    return moves;
+std::vector<Move> generatePseudoLegalMoves(const Board& board) {
+    MoveList list;
+    generatePseudoLegalMoves(board, list);
+    return std::vector<Move>(list.moves.begin(), list.moves.begin() + list.size());
 }
 
 std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
@@ -346,15 +667,16 @@ std::vector<Move> generate_pseudo_legal_moves(const Board& board) {
 }
 
 std::vector<Move> generateLegalMoves(Board& board) {
-    std::vector<Move> pseudo = generatePseudoLegalMoves(board);
+    MoveList pseudo;
+    generatePseudoLegalMoves(board, pseudo);
     std::vector<Move> legal;
     legal.reserve(pseudo.size());
 
-    for (Move m : pseudo) {
+    for (size_t i = 0; i < pseudo.size(); ++i) {
         UndoState undo;
-        if (board.makeMove(m, undo)) {
-            legal.push_back(m);
-            board.unmakeMove(m, undo);
+        if (board.makeMove(pseudo[i], undo)) {
+            legal.push_back(pseudo[i]);
+            board.unmakeMove(pseudo[i], undo);
         }
     }
 
