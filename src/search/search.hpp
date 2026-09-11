@@ -41,7 +41,9 @@ struct SearchInfo {
     Move pv_table[MAX_PLY][MAX_PLY] = {};
     int pv_length[MAX_PLY] = {};
     Move killer_moves[2][MAX_PLY] = {};
+    Move counter_moves[12][64] = {};
     int history_moves[12][64] = {};
+    int capture_history[12][64][6] = {};
     int cont_history_1ply[12][64][12][64] = {};
     int cont_history_2ply[12][64][12][64] = {};
     int pawn_corr_hist[2][CORRECTION_HISTORY_SIZE] = {};

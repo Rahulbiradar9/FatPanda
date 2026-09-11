@@ -258,7 +258,7 @@ int see(const Board& board, Move move) {
 }
 
 // Assigns a heuristic score to a move to assist in move ordering.
-// PV moves, promotions, captures, killers, and histories are prioritized.
+// PV moves, promotions, captures, killers, countermoves, and histories are prioritized.
 int score_move(const Board& board, Move move, Move pv_move, int ply, const SearchInfo& info, MoveContext prev1 = {}, MoveContext prev2 = {}) {
     if (move == pv_move) {
         return 30000; // Search the principal variation (PV) move first
@@ -291,19 +291,32 @@ int score_move(const Board& board, Move move, Move pv_move, int ply, const Searc
             victim_type = get_piece_type(board.get_piece(move.get_to()));
         }
 
-        PieceType attacker_type = get_piece_type(board.get_piece(move.get_from()));
+        Piece attacker = board.get_piece(move.get_from());
+        PieceType attacker_type = get_piece_type(attacker);
 
-        // MVV-LVA (Most Valuable Victim - Least Valuable Aggressor)
-        return 10000 + (get_piece_value(victim_type) * 10) - (get_piece_value(attacker_type) / 100);
+        int cap_hist = 0;
+        if (attacker != Piece::None && victim_type != PieceType::None) {
+            cap_hist = info.capture_history[static_cast<int>(attacker)][static_cast<int>(move.get_to())][static_cast<int>(victim_type)];
+        }
+
+        // MVV-LVA (Most Valuable Victim - Least Valuable Aggressor) + Capture History
+        return 10000 + (get_piece_value(victim_type) * 10) - (get_piece_value(attacker_type) / 100) + (cap_hist / 16);
     }
 
-    // Quiet moves: order by Killer moves, then by combined History + Continuation History heuristics
+    // Quiet moves: order by Killer moves, Countermoves, then combined History + Continuation History
     if (ply < MAX_PLY) {
         if (move == info.killer_moves[0][ply]) {
             return 9000;
         }
         if (move == info.killer_moves[1][ply]) {
             return 8000;
+        }
+    }
+
+    // Countermove heuristic
+    if (prev1.piece != Piece::None && prev1.to != Square::None) {
+        if (move == info.counter_moves[static_cast<int>(prev1.piece)][static_cast<int>(prev1.to)]) {
+            return 7500;
         }
     }
 
@@ -333,7 +346,7 @@ int score_move(const Board& board, Move move, Move pv_move, int ply, const Searc
                               + cont2_history * HISTORY_WEIGHT_CONT2) / HISTORY_WEIGHT_TOTAL;
 
         // Scale and cap the history score to be in range [0, 7000]
-        return std::min(combined_history, 7000);
+        return std::clamp(combined_history, 0, 7000);
     }
 
     return 0; // Quiet moves
@@ -763,6 +776,8 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
     int moves_searched = 0;
     int quiet_moves_searched = 0;
+    std::array<Move, 64> quiets_searched{};
+    int quiets_count = 0;
 
     for (size_t i = 0; i < moves.size(); ++i) {
         // Selection sort to pick the best remaining move
@@ -795,15 +810,13 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             continue;
         }
 
+        if (is_quiet && quiets_count < 64) {
+            quiets_searched[quiets_count++] = m;
+        }
+
         bool gives_check = is_in_check(board, board.get_side_to_move());
 
         // Late Move Pruning (LMP) / Move-count-based pruning:
-        // Note on interaction with LMR (Late Move Reduction):
-        // - LMP acts as a hard pruning gate for quiet, non-checking moves in non-PV nodes at shallow depths (depth <= lmpMaxDepth).
-        // - If quiet_moves_searched exceeds the depth-dependent threshold, the move is skipped entirely.
-        // - Moves pruned by LMP never reach the search recursion and thus are never passed to LMR.
-        // - Moves that survive LMP (or moves in PV nodes / higher depths / tactical moves / checks / killers / TT moves)
-        //   proceed to search and may receive standard LMR search reductions. This prevents any incorrect double-pruning.
         if (g_search_settings.lmp
             && is_quiet
             && !is_tt_move
@@ -886,55 +899,73 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         }
 
         if (alpha >= beta) {
-            // Cutoff: if it's a quiet move, record killer, history, and continuation history heuristics
-            if (excluded_move == MOVE_NONE && !m.isCapture() && !m.isPromotion() && ply < MAX_PLY) {
-                // Update killer moves
-                info.killer_moves[1][ply] = info.killer_moves[0][ply];
-                info.killer_moves[0][ply] = m;
+            // Cutoff: Update move ordering heuristics
+            if (excluded_move == MOVE_NONE) {
+                int bonus = std::min(300, depth * depth);
 
-                // Update history heuristics
-                if (moved_p != Piece::None) {
-                    int piece_idx = static_cast<int>(moved_p);
-                    int sq_idx = static_cast<int>(to_sq);
-                    int bonus = depth * depth;
-
-                    info.history_moves[piece_idx][sq_idx] += bonus;
-
-                    // Prevent history overflow by aging/halving scores when any entry exceeds 100000
-                    if (info.history_moves[piece_idx][sq_idx] > 100000) {
-                        for (int p_idx = 0; p_idx < 12; ++p_idx) {
-                            for (int sq = 0; sq < 64; ++sq) {
-                                info.history_moves[p_idx][sq] /= 2;
-                            }
-                        }
+                if (is_quiet) {
+                    // Update killer moves
+                    if (ply < MAX_PLY) {
+                        info.killer_moves[1][ply] = info.killer_moves[0][ply];
+                        info.killer_moves[0][ply] = m;
                     }
 
-                    // Update Continuation History (1-ply ago)
+                    // Update countermoves
                     if (prev1.piece != Piece::None && prev1.to != Square::None) {
-                        int p1_idx = static_cast<int>(prev1.piece);
-                        int to1_idx = static_cast<int>(prev1.to);
-                        info.cont_history_1ply[p1_idx][to1_idx][piece_idx][sq_idx] += bonus;
-                        if (info.cont_history_1ply[p1_idx][to1_idx][piece_idx][sq_idx] > 100000) {
-                            for (int pi = 0; pi < 12; ++pi) {
-                                for (int sq = 0; sq < 64; ++sq) {
-                                    info.cont_history_1ply[p1_idx][to1_idx][pi][sq] /= 2;
-                                }
-                            }
+                        info.counter_moves[static_cast<int>(prev1.piece)][static_cast<int>(prev1.to)] = m;
+                    }
+
+                    // Positive update for cutoff quiet move
+                    if (moved_p != Piece::None) {
+                        int piece_idx = static_cast<int>(moved_p);
+                        int sq_idx = static_cast<int>(to_sq);
+
+                        update_corr_entry(info.history_moves[piece_idx][sq_idx], bonus);
+
+                        if (prev1.piece != Piece::None && prev1.to != Square::None) {
+                            int p1_idx = static_cast<int>(prev1.piece);
+                            int to1_idx = static_cast<int>(prev1.to);
+                            update_corr_entry(info.cont_history_1ply[p1_idx][to1_idx][piece_idx][sq_idx], bonus);
+                        }
+
+                        if (prev2.piece != Piece::None && prev2.to != Square::None) {
+                            int p2_idx = static_cast<int>(prev2.piece);
+                            int to2_idx = static_cast<int>(prev2.to);
+                            update_corr_entry(info.cont_history_2ply[p2_idx][to2_idx][piece_idx][sq_idx], bonus);
                         }
                     }
 
-                    // Update Continuation History (2-ply ago)
-                    if (prev2.piece != Piece::None && prev2.to != Square::None) {
-                        int p2_idx = static_cast<int>(prev2.piece);
-                        int to2_idx = static_cast<int>(prev2.to);
-                        info.cont_history_2ply[p2_idx][to2_idx][piece_idx][sq_idx] += bonus;
-                        if (info.cont_history_2ply[p2_idx][to2_idx][piece_idx][sq_idx] > 100000) {
-                            for (int pi = 0; pi < 12; ++pi) {
-                                for (int sq = 0; sq < 64; ++sq) {
-                                    info.cont_history_2ply[p2_idx][to2_idx][pi][sq] /= 2;
-                                }
+                    // History Malus: penalize earlier quiet moves that failed to produce a cutoff
+                    for (int qi = 0; qi < quiets_count; ++qi) {
+                        Move qm = quiets_searched[qi];
+                        if (qm == m) continue;
+
+                        Piece q_p = board.get_piece(qm.get_from());
+                        if (q_p != Piece::None) {
+                            int q_p_idx = static_cast<int>(q_p);
+                            int q_to_idx = static_cast<int>(qm.get_to());
+
+                            update_corr_entry(info.history_moves[q_p_idx][q_to_idx], -bonus);
+
+                            if (prev1.piece != Piece::None && prev1.to != Square::None) {
+                                int p1_idx = static_cast<int>(prev1.piece);
+                                int to1_idx = static_cast<int>(prev1.to);
+                                update_corr_entry(info.cont_history_1ply[p1_idx][to1_idx][q_p_idx][q_to_idx], -bonus);
+                            }
+
+                            if (prev2.piece != Piece::None && prev2.to != Square::None) {
+                                int p2_idx = static_cast<int>(prev2.piece);
+                                int to2_idx = static_cast<int>(prev2.to);
+                                update_corr_entry(info.cont_history_2ply[p2_idx][to2_idx][q_p_idx][q_to_idx], -bonus);
                             }
                         }
+                    }
+                } else if (m.isCapture()) {
+                    // Update capture history
+                    Piece victim = board.get_piece(to_sq);
+                    PieceType victim_type = m.isEnPassant() ? PieceType::Pawn : ((victim != Piece::None) ? get_piece_type(victim) : PieceType::None);
+                    if (moved_p != Piece::None && victim_type != PieceType::None) {
+                        update_corr_entry(info.capture_history[static_cast<int>(moved_p)][static_cast<int>(to_sq)][static_cast<int>(victim_type)], bonus);
                     }
                 }
             }
