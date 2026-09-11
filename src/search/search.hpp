@@ -34,6 +34,7 @@ constexpr int CORRECTION_HISTORY_MAX = 16384;
 
 // Struct to track stats and context during a search
 struct SearchInfo {
+    int thread_id = 0;
     uint64_t nodes_searched = 0;
     uint64_t tt_lookups = 0;
     uint64_t tt_hits = 0;

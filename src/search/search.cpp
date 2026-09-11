@@ -40,6 +40,18 @@ constexpr int IIR_REDUCTION = 1;
 // ProbCut configuration
 constexpr int PROBCUT_MIN_DEPTH = 5;
 
+// Precalculated Logarithmic Late Move Reduction (LMR) table
+struct LmrTable {
+    int table[64][64]{};
+    LmrTable() {
+        for (int d = 1; d < 64; ++d) {
+            for (int m = 1; m < 64; ++m) {
+                table[d][m] = static_cast<int>(0.75 + std::log(d) * std::log(m) / 2.25);
+            }
+        }
+    }
+} g_lmr_table;
+
 // Late Move Pruning (LMP) move-count thresholds by depth (1..16) based on (d*d + 2*d)/2
 constexpr std::array<int, 17> LMP_MOVE_THRESHOLDS = {
     0, 2, 4, 7, 12, 17, 24, 31, 40, 49, 60, 71, 84, 97, 112, 127, 144
@@ -852,12 +864,19 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
         // Principal Variation Search (PVS) & Late Move Reductions (LMR)
         if (g_search_settings.pvs && moves_searched > 1) {
-            if (g_search_settings.lmr && depth >= 3 && moves_searched > 4 && is_quiet && !in_check && !gives_check) {
-                int reduction = 1;
-                if (moves_searched > 12) {
-                    reduction = 2;
+            if (g_search_settings.lmr && depth >= 3 && moves_searched > 3 && is_quiet && !in_check && !gives_check) {
+                int reduction = g_lmr_table.table[std::min(depth, 63)][std::min(moves_searched, 63)];
+                if (!pv_node) reduction += 1;
+                if (is_killer || is_tt_move) reduction -= 1;
+                if (info.thread_id > 0 && ((moves_searched + info.thread_id) % 3 == 0)) {
+                    reduction += 1;
                 }
+                reduction = std::clamp(reduction, 1, std::max(1, new_depth - 1));
+
                 score = -search_alphabeta(board, new_depth - reduction, -alpha - 1, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
+                if (score > alpha && reduction > 1) {
+                    score = -search_alphabeta(board, new_depth, -alpha - 1, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
+                }
             } else {
                 score = -search_alphabeta(board, new_depth, -alpha - 1, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
             }
@@ -868,11 +887,15 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             }
         } else {
             // Normal alpha-beta search
-            if (g_search_settings.lmr && !g_search_settings.pvs && depth >= 3 && moves_searched > 4 && is_quiet && !in_check && !gives_check) {
-                int reduction = 1;
-                if (moves_searched > 12) {
-                    reduction = 2;
+            if (g_search_settings.lmr && !g_search_settings.pvs && depth >= 3 && moves_searched > 3 && is_quiet && !in_check && !gives_check) {
+                int reduction = g_lmr_table.table[std::min(depth, 63)][std::min(moves_searched, 63)];
+                if (!pv_node) reduction += 1;
+                if (is_killer || is_tt_move) reduction -= 1;
+                if (info.thread_id > 0 && ((moves_searched + info.thread_id) % 3 == 0)) {
+                    reduction += 1;
                 }
+                reduction = std::clamp(reduction, 1, std::max(1, new_depth - 1));
+
                 score = -search_alphabeta(board, new_depth - reduction, -alpha - 1, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
                 if (score > alpha) {
                     score = -search_alphabeta(board, new_depth, -beta, -alpha, ply + 1, info, MOVE_NONE, next_prev1, next_prev2);
@@ -1157,11 +1180,15 @@ SearchResult search_root(Board& board, int depth, SearchInfo& info, int alpha, i
 SearchResult search_thread(Board& board, int max_depth, int thread_id) {
     auto info_ptr = std::make_unique<SearchInfo>();
     SearchInfo& info = *info_ptr;
+    info.thread_id = thread_id;
     info.nodes_searched = 0;
     info.pv_move = MOVE_NONE;
 
     SearchResult final_result;
     int last_score = 0;
+    Move prev_best_move = MOVE_NONE;
+    int best_move_stable_count = 0;
+    int dynamic_soft_limit = g_time_limit_soft_ms;
 
     std::vector<Move> root_moves = generate_legal_moves(board);
     if (root_moves.size() <= 1) {
@@ -1208,9 +1235,10 @@ SearchResult search_thread(Board& board, int max_depth, int thread_id) {
 
             SearchResult result;
             if (g_search_settings.aspiration && depth >= 5 && pv_idx == 0) {
-                int alpha = last_score - 50;
-                int beta = last_score + 50;
-                int window = 50;
+                int base_delta = 50 + (thread_id % 4) * 15;
+                int alpha = std::max(-INFINITY_SCORE, last_score - base_delta);
+                int beta = std::min(INFINITY_SCORE, last_score + base_delta);
+                int window = base_delta;
                 
                 while (true) {
                     result = search_root(board, depth, info, alpha, beta, excluded_root_moves);
@@ -1220,10 +1248,10 @@ SearchResult search_thread(Board& board, int max_depth, int thread_id) {
                     
                     if (result.score <= alpha) {
                         alpha = std::max(-INFINITY_SCORE, alpha - window);
-                        window *= 2;
+                        window += window / 2;
                     } else if (result.score >= beta) {
                         beta = std::min(INFINITY_SCORE, beta + window);
-                        window *= 2;
+                        window += window / 2;
                     } else {
                         break;
                     }
@@ -1312,12 +1340,32 @@ SearchResult search_thread(Board& board, int max_depth, int thread_id) {
                 break;
             }
 
+            if (depth >= 2) {
+                if (pv_results[0].best_move == prev_best_move) {
+                    best_move_stable_count++;
+                } else {
+                    best_move_stable_count = 0;
+                    if (g_time_limit_soft_ms != -1) {
+                        int expanded = static_cast<int>(g_time_limit_soft_ms * 1.35);
+                        if (g_time_limit_hard_ms != -1) {
+                            dynamic_soft_limit = std::min(g_time_limit_hard_ms, expanded);
+                        } else {
+                            dynamic_soft_limit = expanded;
+                        }
+                    }
+                }
+            }
+            prev_best_move = pv_results[0].best_move;
+
             // Soft time limit check: do not start next depth if soft limit exceeded
-            if (g_time_limit_soft_ms != -1) {
+            if (dynamic_soft_limit != -1) {
                 auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                                    std::chrono::steady_clock::now() - g_start_time)
                                    .count();
-                if (elapsed >= g_time_limit_soft_ms) {
+                if (best_move_stable_count >= 5 && depth >= 7 && elapsed >= dynamic_soft_limit * 65 / 100) {
+                    break;
+                }
+                if (elapsed >= dynamic_soft_limit) {
                     break;
                 }
             }
