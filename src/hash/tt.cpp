@@ -2,6 +2,7 @@
 #include "search/search.hpp"
 #include <cmath>
 #include <algorithm>
+#include <immintrin.h>
 
 namespace ChessEngine {
 
@@ -17,80 +18,118 @@ TranspositionTable::TranspositionTable(size_t size_in_mb) {
 }
 
 void TranspositionTable::resize(size_t size_in_mb) {
-    // Each entry is 16 bytes.
+    // Each cluster is 64 bytes (4 entries of 16 bytes each).
     // 1 MB = 1,048,576 bytes.
-    size_t num_entries = (size_in_mb * 1024 * 1024) / sizeof(TTEntry);
-    
-    if (num_entries == 0) num_entries = 1;
-    
+    size_t num_clusters = (size_in_mb * 1024 * 1024) / sizeof(TTCluster);
+    if (num_clusters == 0) num_clusters = 1;
+
+    num_clusters_ = num_clusters;
     table_.clear();
-    table_.resize(num_entries);
+    table_.resize(num_clusters);
 }
 
 void TranspositionTable::clear() {
-    for (size_t index = 0; index < table_.size(); ++index) {
-        size_t lock_index = index % 4096;
-        std::lock_guard<std::mutex> lock(locks_[lock_index]);
-        table_[index].key = 0;
-        table_[index].move = MOVE_NONE;
-        table_[index].score = 0;
-        table_[index].depth = -1;
-        table_[index].flags = 0;
+    for (auto& cluster : table_) {
+        for (auto& entry : cluster.entries) {
+            entry.key = 0;
+            entry.move = MOVE_NONE;
+            entry.score = 0;
+            entry.depth = -1;
+            entry.flags = 0;
+            entry.age = 0;
+        }
     }
 }
 
+void TranspositionTable::prefetch(uint64_t key) const {
+    if (num_clusters_ == 0) return;
+    size_t index = static_cast<size_t>(key % num_clusters_);
+    _mm_prefetch(reinterpret_cast<const char*>(&table_[index]), _MM_HINT_T0);
+}
+
 bool TranspositionTable::probe(uint64_t key, int ply, TTEntry& entry) const {
-    if (table_.empty()) return false;
-    
-    size_t index = static_cast<size_t>(key % table_.size());
-    size_t lock_index = index % 4096;
-    std::lock_guard<std::mutex> lock(locks_[lock_index]);
-    
-    const TTEntry& table_entry = table_[index];
-    
-    if (table_entry.key == key) {
-        entry = table_entry;
-        
-        // Adjust mate score back to ply-specific values
-        if (entry.score > MATE_SCORE - MAX_PLY) {
-            entry.score = static_cast<int16_t>(entry.score - ply);
-        } else if (entry.score < -MATE_SCORE + MAX_PLY) {
-            entry.score = static_cast<int16_t>(entry.score + ply);
+    if (num_clusters_ == 0) return false;
+
+    size_t index = static_cast<size_t>(key % num_clusters_);
+    const TTCluster& cluster = table_[index];
+
+    for (size_t i = 0; i < TTCluster::CLUSTER_SIZE; ++i) {
+        if (cluster.entries[i].key == key) {
+            entry = cluster.entries[i];
+
+            // Adjust mate score back to ply-specific values
+            if (entry.score > MATE_SCORE - MAX_PLY) {
+                entry.score = static_cast<int16_t>(entry.score - ply);
+            } else if (entry.score < -MATE_SCORE + MAX_PLY) {
+                entry.score = static_cast<int16_t>(entry.score + ply);
+            }
+            return true;
         }
-        return true;
     }
-    
+
     return false;
 }
 
 void TranspositionTable::record(uint64_t key, Move move, int score, int depth, uint8_t flags, int ply) {
-    if (table_.empty()) return;
-    
-    size_t index = static_cast<size_t>(key % table_.size());
-    size_t lock_index = index % 4096;
-    std::lock_guard<std::mutex> lock(locks_[lock_index]);
-    
-    TTEntry& table_entry = table_[index];
-    
+    if (num_clusters_ == 0) return;
+
     // Adjust mate score to be path-length independent
     if (score > MATE_SCORE - MAX_PLY) {
         score += ply;
     } else if (score < -MATE_SCORE + MAX_PLY) {
         score -= ply;
     }
-    
-    // Replacement strategy: write if empty slot, or if new depth >= old depth,
-    // or if the entry is from a different position.
-    if (table_entry.key != key || depth >= table_entry.depth) {
-        table_entry.key = key;
-        // Keep the previous best move if the new recording doesn't provide one
-        if (move != MOVE_NONE || table_entry.key != key) {
-            table_entry.move = move;
+
+    size_t index = static_cast<size_t>(key % num_clusters_);
+    TTCluster& cluster = table_[index];
+
+    // Check if key already exists in cluster
+    for (size_t i = 0; i < TTCluster::CLUSTER_SIZE; ++i) {
+        if (cluster.entries[i].key == key) {
+            if (move != MOVE_NONE || cluster.entries[i].move == MOVE_NONE) {
+                cluster.entries[i].move = move;
+            }
+            if (flags == TT_EXACT || depth >= cluster.entries[i].depth - 2 || cluster.entries[i].age != age_) {
+                cluster.entries[i].score = static_cast<int16_t>(score);
+                cluster.entries[i].depth = static_cast<int8_t>(depth);
+                cluster.entries[i].flags = flags;
+                cluster.entries[i].age = age_;
+            }
+            return;
         }
-        table_entry.score = static_cast<int16_t>(score);
-        table_entry.depth = static_cast<int8_t>(depth);
-        table_entry.flags = flags;
     }
+
+    // Check for an empty slot in cluster
+    for (size_t i = 0; i < TTCluster::CLUSTER_SIZE; ++i) {
+        if (cluster.entries[i].key == 0) {
+            cluster.entries[i].key = key;
+            cluster.entries[i].move = move;
+            cluster.entries[i].score = static_cast<int16_t>(score);
+            cluster.entries[i].depth = static_cast<int8_t>(depth);
+            cluster.entries[i].flags = flags;
+            cluster.entries[i].age = age_;
+            return;
+        }
+    }
+
+    // Replace the slot with lowest utility (age-penalized depth)
+    size_t replace_idx = 0;
+    int min_utility = 1000000;
+    for (size_t i = 0; i < TTCluster::CLUSTER_SIZE; ++i) {
+        int age_diff = static_cast<int>(static_cast<uint8_t>(age_ - cluster.entries[i].age));
+        int utility = static_cast<int>(cluster.entries[i].depth) - age_diff * 4;
+        if (utility < min_utility) {
+            min_utility = utility;
+            replace_idx = i;
+        }
+    }
+
+    cluster.entries[replace_idx].key = key;
+    cluster.entries[replace_idx].move = move;
+    cluster.entries[replace_idx].score = static_cast<int16_t>(score);
+    cluster.entries[replace_idx].depth = static_cast<int8_t>(depth);
+    cluster.entries[replace_idx].flags = flags;
+    cluster.entries[replace_idx].age = age_;
 }
 
 } // namespace ChessEngine

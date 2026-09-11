@@ -826,6 +826,8 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             continue;
         }
 
+        g_tt.prefetch(board.get_hash_key());
+
         if (is_quiet && quiets_count < 64) {
             quiets_searched[quiets_count++] = m;
         }
@@ -1376,6 +1378,8 @@ SearchResult search_thread(Board& board, int max_depth, int thread_id) {
 }
 
 SearchResult search(Board& board, int max_depth) {
+    g_tt.new_search();
+
     if (g_num_threads <= 1) {
         return search_thread(board, max_depth, 0);
     }
