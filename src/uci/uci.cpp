@@ -267,14 +267,17 @@ void parse_setoption(std::stringstream& ss) {
         }
     }
     
-    if (option_name == "Hash" || option_name == "hash") {
+    if (option_name == "Clear Hash" || option_name == "ClearHash" || option_name == "clear hash" || option_name == "clearhash") {
+        g_tt.clear();
+    } else if (option_name == "Hash" || option_name == "hash") {
         try {
             int size_mb = std::stoi(option_value);
             if (size_mb > 0) {
                 g_tt.resize(static_cast<size_t>(size_mb));
             }
         } catch (...) {}
-    } else if (option_name == "SearchOverhead" || option_name == "searchoverhead" || option_name == "Search Overhead") {
+    } else if (option_name == "SearchOverhead" || option_name == "searchoverhead" || option_name == "Search Overhead" ||
+               option_name == "Move Overhead" || option_name == "move overhead" || option_name == "MoveOverhead") {
         try {
             int overhead = std::stoi(option_value);
             if (overhead >= 0) {
@@ -426,6 +429,8 @@ void uci_loop() {
             std::cout << "id name FatPanda v" << get_version_string() << "\n";
             std::cout << "id author Rahul Biradar\n";
             std::cout << "option name Hash type spin default 64 min 1 max 2048\n";
+            std::cout << "option name Clear Hash type button\n";
+            std::cout << "option name Move Overhead type spin default 20 min 0 max 5000\n";
             std::cout << "option name SearchOverhead type spin default 20 min 0 max 5000\n";
             std::cout << "option name OwnBook type check default true\n";
             std::cout << "option name BookFile type string default book.bin\n";

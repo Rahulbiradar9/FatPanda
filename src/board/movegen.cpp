@@ -710,7 +710,7 @@ bool is_pseudo_legal(const Board& board, Move m) {
 
     if (pt == PieceType::Pawn) {
         if (m.isEnPassant()) {
-            return to == board.get_en_passant_square();
+            return to == board.get_en_passant();
         }
         int from_rank = get_rank(from);
         int to_rank = get_rank(to);

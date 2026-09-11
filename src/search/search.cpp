@@ -269,6 +269,10 @@ int see(const Board& board, Move move) {
     return gain[0];
 }
 
+inline bool see_ge(const Board& board, Move move, int threshold) {
+    return see(board, move) >= threshold;
+}
+
 // Assigns a heuristic score to a move to assist in move ordering.
 // PV moves, promotions, captures, killers, countermoves, and histories are prioritized.
 int score_move(const Board& board, Move move, Move pv_move, int ply, const SearchInfo& info, MoveContext prev1 = {}, MoveContext prev2 = {}) {

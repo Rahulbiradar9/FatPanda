@@ -127,4 +127,17 @@ TEST(UciTest, GoPonderAndStop) {
     EXPECT_FALSE(g_is_pondering.load());
 }
 
+TEST(UciTest, SetOptionClearHashAndMoveOverhead) {
+    std::stringstream ss_overhead("name Move Overhead value 45");
+    parse_setoption(ss_overhead);
+    EXPECT_EQ(g_search_overhead_ms, 45);
+
+    std::stringstream ss_clear("name Clear Hash");
+    parse_setoption(ss_clear);
+
+    std::stringstream ss_reset("name SearchOverhead value 20");
+    parse_setoption(ss_reset);
+    EXPECT_EQ(g_search_overhead_ms, 20);
+}
+
 
