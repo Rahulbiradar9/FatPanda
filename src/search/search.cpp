@@ -624,9 +624,15 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         static_eval = raw_static_eval + corr;
     }
 
+    if (ply < MAX_PLY) {
+        info.eval_history[ply] = in_check ? -INFINITY_SCORE : static_eval;
+    }
+
+    bool improving = !in_check && ply >= 2 && info.eval_history[ply - 2] != -INFINITY_SCORE && static_eval > info.eval_history[ply - 2];
+
     // Reverse Futility Pruning (RFP) / Static Null Move Pruning
     if (excluded_move == MOVE_NONE && g_search_settings.rfp && depth <= 6 && !in_check && ply > 0) {
-        int margin = depth * 90;
+        int margin = depth * (improving ? 80 : 100);
         if (static_eval - margin >= beta) {
             return beta; // Fail high
         }
@@ -642,8 +648,8 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             UndoState undo;
             board.makeNullMove(undo);
             
-            // Dynamic reduction R based on depth and static eval surplus
-            int R = 3 + (depth / 6) + std::min(3, (static_eval - beta) / 200);
+            // Dynamic reduction R based on depth, static eval surplus, and improving condition
+            int R = 3 + (depth / 6) + std::min(3, (static_eval - beta) / 200) + (!improving ? 1 : 0);
             int score = -search_alphabeta(board, depth - 1 - R, -beta, -beta + 1, ply + 1, info, MOVE_NONE, {}, prev1);
             board.unmakeNullMove(undo);
             if (score >= beta) {
@@ -818,6 +824,23 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             continue; // Prune quiet move
         }
 
+        // Negative SEE Pruning: prune moves with losing tactical exchange at shallow depths
+        if (g_search_settings.see
+            && !pv_node
+            && !in_check
+            && depth <= 6
+            && moves_searched > 0
+            && excluded_move == MOVE_NONE)
+        {
+            if (is_quiet && !is_tt_move && !is_killer) {
+                if (!see_ge(board, m, -30 * depth * depth)) {
+                    continue;
+                }
+            } else if (m.isCapture() && !see_ge(board, m, -100 * depth)) {
+                continue;
+            }
+        }
+
         Piece moved_p = board.get_piece(m.get_from());
         Square to_sq = m.get_to();
 
@@ -868,7 +891,13 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         if (g_search_settings.pvs && moves_searched > 1) {
             if (g_search_settings.lmr && depth >= 3 && moves_searched > 3 && is_quiet && !in_check && !gives_check) {
                 int reduction = g_lmr_table.table[std::min(depth, 63)][std::min(moves_searched, 63)];
+                if (moved_p != Piece::None) {
+                    int piece_idx = static_cast<int>(moved_p);
+                    int sq_idx = static_cast<int>(to_sq);
+                    reduction -= std::clamp(info.history_moves[piece_idx][sq_idx] / 4096, -2, 2);
+                }
                 if (!pv_node) reduction += 1;
+                if (!improving) reduction += 1;
                 if (is_killer || is_tt_move) reduction -= 1;
                 if (info.thread_id > 0 && ((moves_searched + info.thread_id) % 3 == 0)) {
                     reduction += 1;
@@ -891,7 +920,13 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             // Normal alpha-beta search
             if (g_search_settings.lmr && !g_search_settings.pvs && depth >= 3 && moves_searched > 3 && is_quiet && !in_check && !gives_check) {
                 int reduction = g_lmr_table.table[std::min(depth, 63)][std::min(moves_searched, 63)];
+                if (moved_p != Piece::None) {
+                    int piece_idx = static_cast<int>(moved_p);
+                    int sq_idx = static_cast<int>(to_sq);
+                    reduction -= std::clamp(info.history_moves[piece_idx][sq_idx] / 4096, -2, 2);
+                }
                 if (!pv_node) reduction += 1;
+                if (!improving) reduction += 1;
                 if (is_killer || is_tt_move) reduction -= 1;
                 if (info.thread_id > 0 && ((moves_searched + info.thread_id) % 3 == 0)) {
                     reduction += 1;

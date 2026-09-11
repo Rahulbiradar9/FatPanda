@@ -49,6 +49,7 @@ struct SearchInfo {
     int cont_history_2ply[12][64][12][64] = {};
     int pawn_corr_hist[2][CORRECTION_HISTORY_SIZE] = {};
     int non_pawn_corr_hist[2][CORRECTION_HISTORY_SIZE] = {};
+    int eval_history[MAX_PLY] = {};
 };
 
 // Struct containing the result of a search
