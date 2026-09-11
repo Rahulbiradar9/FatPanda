@@ -657,6 +657,11 @@ int quiescence(Board& board, int alpha, int beta, int ply, SearchInfo& info) {
         Move m = moves.moves[i];
 
         if (!in_check) {
+            // (0) Move count cap to prevent combinatorial explosion
+            if (legal_moves_searched >= 16) {
+                break;
+            }
+
             // (1) Delta Pruning:
             if (!endgame && !m.isPromotion()) {
                 int capture_val = get_capture_value(board, m);
@@ -742,13 +747,11 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
     // Optional Syzygy WDL probing (skip in singular search)
     if (excluded_move == MOVE_NONE && g_syzygy_enabled && syzygy_is_loaded()) {
-        int pieces_count = 0;
-        for (int p = 0; p < 12; ++p) {
-            pieces_count += count_bits(board.get_piece_bitboard(static_cast<Piece>(p)));
-        }
-        if (pieces_count <= 5) {
+        int pieces_count = count_bits(board.get_occupancy(Color::None));
+        if (pieces_count <= 6) {
             int tb_score = 0;
             if (syzygy_probe_wdl(board, tb_score)) {
+                g_tt.record(board.get_hash_key(), MOVE_NONE, tb_score, depth, TT_EXACT, ply);
                 return tb_score;
             }
         }
@@ -985,6 +988,30 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             }
         }
 
+        // (3) History-Based Pruning: prune moves with deeply negative history at shallow depths
+        if (!pv_node
+            && !in_check
+            && depth <= 4
+            && moves_searched > 0
+            && is_quiet
+            && !is_tt_move
+            && !is_killer
+            && excluded_move == MOVE_NONE)
+        {
+            Piece p = board.get_piece(m.get_from());
+            if (p != Piece::None) {
+                int p_idx = static_cast<int>(p);
+                int sq_idx = static_cast<int>(m.get_to());
+                int hist = info.history_moves[p_idx][sq_idx];
+                if (prev1.piece != Piece::None && prev1.to != Square::None) {
+                    hist += info.cont_history_1ply[static_cast<int>(prev1.piece)][static_cast<int>(prev1.to)][p_idx][sq_idx];
+                }
+                if (hist < -3500 * depth) {
+                    continue;
+                }
+            }
+        }
+
         Piece moved_p = board.get_piece(m.get_from());
         Square to_sq = m.get_to();
 
@@ -1033,9 +1060,13 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
         // Principal Variation Search (PVS) & Late Move Reductions (LMR)
         if (g_search_settings.pvs && moves_searched > 1) {
-            if (g_search_settings.lmr && depth >= 3 && moves_searched > 3 && is_quiet && !in_check && !gives_check) {
-                int reduction = g_lmr_table.table[std::min(depth, 63)][std::min(moves_searched, 63)];
-                if (moved_p != Piece::None) {
+            bool is_capture = m.isCapture();
+            bool lmr_eligible = (is_quiet && moves_searched > 3) || (is_capture && (moves_searched > 6 || !see_ge(board, m, 0)));
+            if (g_search_settings.lmr && depth >= 3 && lmr_eligible && !in_check && !gives_check) {
+                int reduction = is_quiet
+                    ? g_lmr_table.table[std::min(depth, 63)][std::min(moves_searched, 63)]
+                    : 1 + (moves_searched > 12 ? 1 : 0);
+                if (moved_p != Piece::None && is_quiet) {
                     int piece_idx = static_cast<int>(moved_p);
                     int sq_idx = static_cast<int>(to_sq);
                     reduction -= std::clamp(info.history_moves[piece_idx][sq_idx] / 4096, -2, 2);
@@ -1062,9 +1093,13 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
             }
         } else {
             // Normal alpha-beta search
-            if (g_search_settings.lmr && !g_search_settings.pvs && depth >= 3 && moves_searched > 3 && is_quiet && !in_check && !gives_check) {
-                int reduction = g_lmr_table.table[std::min(depth, 63)][std::min(moves_searched, 63)];
-                if (moved_p != Piece::None) {
+            bool is_capture = m.isCapture();
+            bool lmr_eligible = (is_quiet && moves_searched > 3) || (is_capture && (moves_searched > 6 || !see_ge(board, m, 0)));
+            if (g_search_settings.lmr && !g_search_settings.pvs && depth >= 3 && lmr_eligible && !in_check && !gives_check) {
+                int reduction = is_quiet
+                    ? g_lmr_table.table[std::min(depth, 63)][std::min(moves_searched, 63)]
+                    : 1 + (moves_searched > 12 ? 1 : 0);
+                if (moved_p != Piece::None && is_quiet) {
                     int piece_idx = static_cast<int>(moved_p);
                     int sq_idx = static_cast<int>(to_sq);
                     reduction -= std::clamp(info.history_moves[piece_idx][sq_idx] / 4096, -2, 2);
