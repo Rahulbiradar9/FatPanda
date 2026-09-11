@@ -317,3 +317,24 @@ TEST(EvaluationTest, NNUELoadMockFile) {
     // Reload default weights
     nnue_load_file("nonexistent_file_to_force_default_weights.nnue");
 }
+
+TEST(EvaluationTest, NNUEEvaluationMaterialSensitivity) {
+    bool prev_use = g_use_nnue;
+    g_use_nnue = true;
+
+    Board board_start;
+    board_start.reset_to_start();
+    EXPECT_EQ(evaluate(board_start), 0);
+
+    // White has extra Queen (Black has no queen on d8)
+    Board board_extra_queen;
+    EXPECT_TRUE(board_extra_queen.load_from_fen("rnb1kbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"));
+    EXPECT_GT(evaluate(board_extra_queen), 500);
+
+    // Black has extra Queen (White has no queen on d1)
+    Board board_black_extra_queen;
+    EXPECT_TRUE(board_black_extra_queen.load_from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1"));
+    EXPECT_LT(evaluate(board_black_extra_queen), -500);
+
+    g_use_nnue = prev_use;
+}

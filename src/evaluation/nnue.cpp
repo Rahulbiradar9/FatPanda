@@ -1,5 +1,6 @@
 #include "nnue.hpp"
 #include "evaluation.hpp"
+#include "params.hpp"
 #include <fstream>
 #include <iostream>
 #include <algorithm>
@@ -38,45 +39,63 @@ inline void vec_sub_256(int16_t* dst, const int16_t* src) {
 }
 #endif
 
-// Helper function to initialize default weights
+// Helper function to initialize high-quality default embedded weights
 static void init_default_weights() {
-    // Fill first layer weights with a simple piece material approximation
-    for (int f = 0; f < 768; ++f) {
-        int piece_type = f / 64;
-        int val = 0;
-        
-        // WP=0, WN=1, WB=2, WR=3, WQ=4, WK=5, BP=6, BN=7, BB=8, BR=9, BQ=10, BK=11
-        if (piece_type == 0) val = 10;
-        else if (piece_type == 1) val = 30;
-        else if (piece_type == 2) val = 32;
-        else if (piece_type == 3) val = 50;
-        else if (piece_type == 4) val = 90;
-        else if (piece_type == 5) val = 10;
-        else if (piece_type == 6) val = -10;
-        else if (piece_type == 7) val = -30;
-        else if (piece_type == 8) val = -32;
-        else if (piece_type == 9) val = -50;
-        else if (piece_type == 10) val = -90;
-        else if (piece_type == 11) val = -10;
-        
-        for (int j = 0; j < 256; ++j) {
-            w1[f][j] = static_cast<int16_t>(val);
+    EvalParams params;
+
+    // Fill first layer weights:
+    // Features 0..383: Friendly piece types (WP=0, WN=1, WB=2, WR=3, WQ=4, WK=5)
+    // Features 384..767: Opponent piece types (BP=6, BN=7, BB=8, BR=9, BQ=10, BK=11)
+    for (int p = 0; p < 12; ++p) {
+        for (int sq = 0; sq < 64; ++sq) {
+            int f = p * 64 + sq;
+            int val = 0;
+            if (p < 6) {
+                switch (p) {
+                    case 0: val = params.val_pawn + params.pawn_pst[sq]; break;
+                    case 1: val = params.val_knight + params.knight_pst[sq]; break;
+                    case 2: val = params.val_bishop + params.bishop_pst[sq]; break;
+                    case 3: val = params.val_rook + params.rook_pst[sq]; break;
+                    case 4: val = params.val_queen + params.queen_pst[sq]; break;
+                    case 5: val = 1000 + params.king_pst[sq]; break;
+                }
+            } else {
+                val = 0;
+            }
+
+            for (int j = 0; j < 256; ++j) {
+                w1[f][j] = static_cast<int16_t>(val / 4);
+            }
         }
     }
-    
-    // Initialize biases to 0
+
+    // Initialize layer 1 biases to 0
     std::fill(b1.begin(), b1.end(), static_cast<int16_t>(0));
-    
-    // Initialize layer 2 weights to 1
+
+    // Layer 2: 512 inputs -> 16 hidden neurons
+    // Neurons 0..7: detect friendly advantage (+ for inputs 0..255, - for inputs 256..511)
+    // Neurons 8..15: detect opponent advantage (- for inputs 0..255, + for inputs 256..511)
     for (int i = 0; i < 512; ++i) {
-        std::fill(w2[i].begin(), w2[i].end(), static_cast<int16_t>(1));
+        for (int j = 0; j < 8; ++j) {
+            w2[i][j] = (i < 256) ? static_cast<int16_t>(1) : static_cast<int16_t>(-1);
+        }
+        for (int j = 8; j < 16; ++j) {
+            w2[i][j] = (i < 256) ? static_cast<int16_t>(-1) : static_cast<int16_t>(1);
+        }
     }
     std::fill(b2.begin(), b2.end(), static_cast<int16_t>(0));
-    
-    // Initialize layer 3 weights to 1
-    std::fill(w3.begin(), w3.end(), static_cast<int16_t>(1));
+
+    // Layer 3: 16 -> 1
+    // Neurons 0..7 contribute positively (+32)
+    // Neurons 8..15 contribute negatively (-32)
+    for (int j = 0; j < 8; ++j) {
+        w3[j] = static_cast<int16_t>(32);
+    }
+    for (int j = 8; j < 16; ++j) {
+        w3[j] = static_cast<int16_t>(-32);
+    }
     b3 = 0;
-    
+
     s_network_loaded = true;
 }
 
