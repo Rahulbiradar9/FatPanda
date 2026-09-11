@@ -612,15 +612,15 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         static_eval = raw_static_eval + corr;
     }
 
-    // Reverse Futility Pruning (RFP)
-    if (excluded_move == MOVE_NONE && g_search_settings.rfp && depth <= 3 && !in_check && ply > 0) {
-        int margin = depth * 120;
+    // Reverse Futility Pruning (RFP) / Static Null Move Pruning
+    if (excluded_move == MOVE_NONE && g_search_settings.rfp && depth <= 6 && !in_check && ply > 0) {
+        int margin = depth * 90;
         if (static_eval - margin >= beta) {
             return beta; // Fail high
         }
     }
 
-    // Null Move Pruning (NMP)
+    // Dynamic Null Move Pruning (NMP)
     if (excluded_move == MOVE_NONE && g_search_settings.nmp && depth >= 3 && !in_check && ply > 0) {
         Color us = board.get_side_to_move();
         Bitboard our_non_pawns = board.get_occupancy(us) 
@@ -629,11 +629,13 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         if (our_non_pawns != EMPTY_BOARD && static_eval >= beta) {
             UndoState undo;
             board.makeNullMove(undo);
-            int R = 2; // Reduction depth
+            
+            // Dynamic reduction R based on depth and static eval surplus
+            int R = 3 + (depth / 6) + std::min(3, (static_eval - beta) / 200);
             int score = -search_alphabeta(board, depth - 1 - R, -beta, -beta + 1, ply + 1, info, MOVE_NONE, {}, prev1);
             board.unmakeNullMove(undo);
             if (score >= beta) {
-                return beta; // Fail high
+                return (std::abs(score) >= MATE_SCORE - MAX_PLY) ? beta : score;
             }
         }
     }
@@ -742,9 +744,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         moves.scores[i] = score_move(board, moves[i], tt_move, ply, info, prev1, prev2);
     }
 
-    // Singular Extension:
-    // Before searching the TT move, run a reduced-depth null-window search excluding the TT move
-    // to test if other moves fail low against (ttScore - singularMargin).
+    // Singular Extension (with Double Extension):
     int extension = 0;
     if (g_search_settings.singular
         && excluded_move == MOVE_NONE
@@ -763,6 +763,10 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
 
         if (singular_score < singular_beta) {
             extension = 1;
+            // Double singular extension when singular margin is doubled
+            if (!pv_node && singular_score < singular_beta - singular_margin) {
+                extension = 2;
+            }
         }
     }
 
