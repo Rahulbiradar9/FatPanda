@@ -106,79 +106,44 @@ inline constexpr Bitboard getKingAttacks(Square sq) {
     return ATTACK_TABLES.king_attacks[static_cast<size_t>(sq)];
 }
 
-// Sliding attack generators computed on the fly via blocker scanning
+// Sliding attack generators accelerated via Magic Bitboards / BMI2 PEXT
 
-inline constexpr Bitboard getBishopAttacks(Square sq, Bitboard occupancy) {
-    Bitboard attacks = EMPTY_BOARD;
-    if (sq == Square::None) return attacks;
+extern Bitboard g_bishop_masks[64];
+extern Bitboard g_rook_masks[64];
+extern uint64_t g_bishop_magics[64];
+extern uint64_t g_rook_magics[64];
+extern uint8_t g_bishop_shifts[64];
+extern uint8_t g_rook_shifts[64];
+extern const Bitboard* g_bishop_attacks[64];
+extern const Bitboard* g_rook_attacks[64];
 
-    int r = get_rank(sq);
-    int f = get_file(sq);
+void init_attacks();
 
-    // Diagonal Up-Right
-    for (int rank = r + 1, file = f + 1; rank < 8 && file < 8; ++rank, ++file) {
-        Square target = make_square(file, rank);
-        set_bit(attacks, target);
-        if (test_bit(occupancy, target)) break;
-    }
-    // Diagonal Up-Left
-    for (int rank = r + 1, file = f - 1; rank < 8 && file >= 0; ++rank, --file) {
-        Square target = make_square(file, rank);
-        set_bit(attacks, target);
-        if (test_bit(occupancy, target)) break;
-    }
-    // Diagonal Down-Right
-    for (int rank = r - 1, file = f + 1; rank >= 0 && file < 8; --rank, ++file) {
-        Square target = make_square(file, rank);
-        set_bit(attacks, target);
-        if (test_bit(occupancy, target)) break;
-    }
-    // Diagonal Down-Left
-    for (int rank = r - 1, file = f - 1; rank >= 0 && file >= 0; --rank, --file) {
-        Square target = make_square(file, rank);
-        set_bit(attacks, target);
-        if (test_bit(occupancy, target)) break;
-    }
-
-    return attacks;
+inline Bitboard getBishopAttacks(Square sq, Bitboard occupancy) {
+    if (sq == Square::None) return EMPTY_BOARD;
+    size_t s = static_cast<size_t>(sq);
+#if defined(__BMI2__)
+    return g_bishop_attacks[s][_pext_u64(occupancy, g_bishop_masks[s])];
+#else
+    Bitboard occ = occupancy & g_bishop_masks[s];
+    size_t idx = static_cast<size_t>((occ * g_bishop_magics[s]) >> g_bishop_shifts[s]);
+    return g_bishop_attacks[s][idx];
+#endif
 }
 
-inline constexpr Bitboard getRookAttacks(Square sq, Bitboard occupancy) {
-    Bitboard attacks = EMPTY_BOARD;
-    if (sq == Square::None) return attacks;
-
-    int r = get_rank(sq);
-    int f = get_file(sq);
-
-    // Up
-    for (int rank = r + 1; rank < 8; ++rank) {
-        Square target = make_square(f, rank);
-        set_bit(attacks, target);
-        if (test_bit(occupancy, target)) break;
-    }
-    // Down
-    for (int rank = r - 1; rank >= 0; --rank) {
-        Square target = make_square(f, rank);
-        set_bit(attacks, target);
-        if (test_bit(occupancy, target)) break;
-    }
-    // Right
-    for (int file = f + 1; file < 8; ++file) {
-        Square target = make_square(file, r);
-        set_bit(attacks, target);
-        if (test_bit(occupancy, target)) break;
-    }
-    // Left
-    for (int file = f - 1; file >= 0; --file) {
-        Square target = make_square(file, r);
-        set_bit(attacks, target);
-        if (test_bit(occupancy, target)) break;
-    }
-
-    return attacks;
+inline Bitboard getRookAttacks(Square sq, Bitboard occupancy) {
+    if (sq == Square::None) return EMPTY_BOARD;
+    size_t s = static_cast<size_t>(sq);
+#if defined(__BMI2__)
+    return g_rook_attacks[s][_pext_u64(occupancy, g_rook_masks[s])];
+#else
+    Bitboard occ = occupancy & g_rook_masks[s];
+    size_t idx = static_cast<size_t>((occ * g_rook_magics[s]) >> g_rook_shifts[s]);
+    return g_rook_attacks[s][idx];
+#endif
 }
 
-inline constexpr Bitboard getQueenAttacks(Square sq, Bitboard occupancy) {
+inline Bitboard getQueenAttacks(Square sq, Bitboard occupancy) {
     return getBishopAttacks(sq, occupancy) | getRookAttacks(sq, occupancy);
 }
 
@@ -196,16 +161,17 @@ inline constexpr Bitboard get_king_attacks(Square sq) {
     return getKingAttacks(sq);
 }
 
-inline constexpr Bitboard get_bishop_attacks(Square sq, Bitboard occupancy) {
+inline Bitboard get_bishop_attacks(Square sq, Bitboard occupancy) {
     return getBishopAttacks(sq, occupancy);
 }
 
-inline constexpr Bitboard get_rook_attacks(Square sq, Bitboard occupancy) {
+inline Bitboard get_rook_attacks(Square sq, Bitboard occupancy) {
     return getRookAttacks(sq, occupancy);
 }
 
-inline constexpr Bitboard get_queen_attacks(Square sq, Bitboard occupancy) {
+inline Bitboard get_queen_attacks(Square sq, Bitboard occupancy) {
     return getQueenAttacks(sq, occupancy);
 }
 
 } // namespace ChessEngine
+

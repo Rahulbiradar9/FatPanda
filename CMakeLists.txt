@@ -27,6 +27,7 @@ add_library(FatPandaLib STATIC
     src/utils/version.cpp
     src/utils/chess_types.cpp
     src/utils/rng.cpp
+    src/board/attacks.cpp
     src/board/board.cpp
     src/board/bitboard.cpp
     src/board/fen.cpp
