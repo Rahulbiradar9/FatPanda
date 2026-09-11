@@ -48,22 +48,22 @@ add_library(FatPandaLib STATIC
 # Set include directories
 target_include_directories(FatPandaLib PUBLIC src)
 
-# Set warnings for FatPandaLib target
+# Set warnings and SIMD flags for FatPandaLib target
 if(MSVC)
-    target_compile_options(FatPandaLib PRIVATE /W4 /permissive-)
+    target_compile_options(FatPandaLib PRIVATE /W4 /permissive- /arch:AVX2)
 else()
-    target_compile_options(FatPandaLib PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    target_compile_options(FatPandaLib PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -mavx2 -mbmi2)
 endif()
 
 # Define the Main Executable
 add_executable(FatPanda src/main.cpp)
 target_link_libraries(FatPanda PRIVATE FatPandaLib)
 
-# Set warnings for FatPanda executable target
+# Set warnings and SIMD flags for FatPanda executable target
 if(MSVC)
-    target_compile_options(FatPanda PRIVATE /W4 /permissive-)
+    target_compile_options(FatPanda PRIVATE /W4 /permissive- /arch:AVX2)
 else()
-    target_compile_options(FatPanda PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    target_compile_options(FatPanda PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -mavx2 -mbmi2)
 endif()
 
 # Add test suite subdirectory

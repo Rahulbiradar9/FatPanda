@@ -13,12 +13,30 @@ std::string g_nnue_file = "nn.nnue";
 static bool s_network_loaded = false;
 
 // NNUE Network weights and biases
-static std::array<std::array<int16_t, 256>, 768> w1;
-static std::array<int16_t, 256> b1;
+static alignas(32) std::array<std::array<int16_t, 256>, 768> w1;
+static alignas(32) std::array<int16_t, 256> b1;
 static std::array<std::array<int16_t, 16>, 512> w2;
 static std::array<int16_t, 16> b2;
 static std::array<int16_t, 16> w3;
 static int16_t b3 = 0;
+
+#if defined(__AVX2__)
+inline void vec_add_256(int16_t* dst, const int16_t* src) {
+    for (int i = 0; i < 256; i += 16) {
+        __m256i d = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(dst + i));
+        __m256i s = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + i));
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + i), _mm256_add_epi16(d, s));
+    }
+}
+
+inline void vec_sub_256(int16_t* dst, const int16_t* src) {
+    for (int i = 0; i < 256; i += 16) {
+        __m256i d = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(dst + i));
+        __m256i s = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + i));
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + i), _mm256_sub_epi16(d, s));
+    }
+}
+#endif
 
 // Helper function to initialize default weights
 static void init_default_weights() {
@@ -113,10 +131,15 @@ void nnue_recompute_accumulator(const Board& board, Accumulator& accum) {
         if (p != Piece::None) {
             int w_idx = get_nnue_feature_white(p, static_cast<Square>(sq));
             int b_idx = get_nnue_feature_black(p, static_cast<Square>(sq));
+#if defined(__AVX2__)
+            vec_add_256(accum.hv[0].data(), w1[w_idx].data());
+            vec_add_256(accum.hv[1].data(), w1[b_idx].data());
+#else
             for (int i = 0; i < 256; ++i) {
                 accum.hv[0][i] += w1[w_idx][i];
                 accum.hv[1][i] += w1[b_idx][i];
             }
+#endif
         }
     }
 }
@@ -136,10 +159,15 @@ void nnue_update_accumulator(
         Square sq = removed[r].second;
         int w_idx = get_nnue_feature_white(p, sq);
         int b_idx = get_nnue_feature_black(p, sq);
+#if defined(__AVX2__)
+        vec_sub_256(next.hv[0].data(), w1[w_idx].data());
+        vec_sub_256(next.hv[1].data(), w1[b_idx].data());
+#else
         for (int i = 0; i < 256; ++i) {
             next.hv[0][i] -= w1[w_idx][i];
             next.hv[1][i] -= w1[b_idx][i];
         }
+#endif
     }
     
     // Add features of added pieces
@@ -148,10 +176,15 @@ void nnue_update_accumulator(
         Square sq = added[a].second;
         int w_idx = get_nnue_feature_white(p, sq);
         int b_idx = get_nnue_feature_black(p, sq);
+#if defined(__AVX2__)
+        vec_add_256(next.hv[0].data(), w1[w_idx].data());
+        vec_add_256(next.hv[1].data(), w1[b_idx].data());
+#else
         for (int i = 0; i < 256; ++i) {
             next.hv[0][i] += w1[w_idx][i];
             next.hv[1][i] += w1[b_idx][i];
         }
+#endif
     }
 }
 

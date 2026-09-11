@@ -32,7 +32,7 @@ struct UndoState {
 
 // The Accumulator represents the feature output of the first layer (transformer)
 // from both White and Black perspectives.
-struct Accumulator {
+struct alignas(32) Accumulator {
     std::array<int16_t, 256> hv[2]; // Index 0: White perspective, 1: Black perspective
 };
 
