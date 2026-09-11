@@ -26,5 +26,7 @@ void parse_tune(std::stringstream& ss);
 void parse_datagen(std::stringstream& ss);
 void parse_bench(std::stringstream& ss);
 void run_benchmark(int depth = 13, int threads = 1, int hash_mb = 16);
+void parse_epd(std::stringstream& ss);
+int run_epd_test(const std::string& filepath, int movetime_ms = 1000);
 
 } // namespace ChessEngine

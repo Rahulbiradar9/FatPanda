@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include <iomanip>
 
 namespace ChessEngine {
 
@@ -476,6 +477,8 @@ void uci_loop() {
             parse_datagen(ss);
         } else if (command == "bench") {
             parse_bench(ss);
+        } else if (command == "epd") {
+            parse_epd(ss);
         } else if (command == "quit") {
             join_search_thread();
             break;
@@ -849,6 +852,220 @@ void parse_bench(std::stringstream& ss) {
     }
 
     run_benchmark(depth, threads, hash_mb);
+}
+
+// Parse SAN or UCI format move string for EPD test runner
+Move parse_san_or_uci_move(Board& board, std::string move_str) {
+    while (!move_str.empty() && (move_str.back() == '+' || move_str.back() == '#' || 
+                                 move_str.back() == '!' || move_str.back() == '?' ||
+                                 move_str.back() == ';')) {
+        move_str.pop_back();
+    }
+    if (move_str.empty()) return MOVE_NONE;
+
+    // Try standard UCI move parser first
+    Move uci_m = parse_move(board, move_str);
+    if (!uci_m.is_none()) return uci_m;
+
+    auto legal_moves = generate_legal_moves(board);
+
+    // Castling SAN
+    if (move_str == "O-O" || move_str == "0-0" || move_str == "o-o") {
+        for (Move m : legal_moves) {
+            if (m.isCastling() && m.is_castle_k()) return m;
+        }
+    }
+    if (move_str == "O-O-O" || move_str == "0-0-0" || move_str == "o-o-o") {
+        for (Move m : legal_moves) {
+            if (m.isCastling() && !m.is_castle_k()) return m;
+        }
+    }
+
+    // Standard SAN e.g. "Qd1", "Bxf7", "exd5", "e4", "Nf3", "R1e2"
+    PieceType promo = PieceType::None;
+    if (move_str.find('=') != std::string::npos) {
+        size_t eq_pos = move_str.find('=');
+        if (eq_pos + 1 < move_str.length()) {
+            char pr = static_cast<char>(std::tolower(move_str[eq_pos + 1]));
+            if (pr == 'q') promo = PieceType::Queen;
+            else if (pr == 'r') promo = PieceType::Rook;
+            else if (pr == 'b') promo = PieceType::Bishop;
+            else if (pr == 'n') promo = PieceType::Knight;
+        }
+        move_str = move_str.substr(0, eq_pos);
+    }
+
+    if (move_str.length() < 2) return MOVE_NONE;
+    std::string to_str = move_str.substr(move_str.length() - 2);
+    Square to_sq = stringToSquare(to_str);
+    if (!is_valid_square(to_sq)) return MOVE_NONE;
+
+    char piece_char = move_str[0];
+    PieceType pt = PieceType::Pawn;
+    size_t disam_start = 1;
+    if (piece_char >= 'A' && piece_char <= 'Z') {
+        switch (piece_char) {
+            case 'N': pt = PieceType::Knight; break;
+            case 'B': pt = PieceType::Bishop; break;
+            case 'R': pt = PieceType::Rook; break;
+            case 'Q': pt = PieceType::Queen; break;
+            case 'K': pt = PieceType::King; break;
+            default: pt = PieceType::Pawn; break;
+        }
+    } else {
+        pt = PieceType::Pawn;
+        disam_start = 0;
+    }
+
+    std::string disam = "";
+    if (move_str.length() > disam_start + 2) {
+        disam = move_str.substr(disam_start, move_str.length() - 2 - disam_start);
+        if (!disam.empty() && disam.back() == 'x') disam.pop_back();
+    }
+
+    for (Move m : legal_moves) {
+        if (m.getDestinationSquare() != to_sq) continue;
+        Piece piece = board.get_piece(m.getSourceSquare());
+        if (get_piece_type(piece) != pt) continue;
+        if (promo != PieceType::None && m.getPromotionPieceType() != promo) continue;
+
+        if (!disam.empty()) {
+            if (disam.length() == 1) {
+                if (disam[0] >= 'a' && disam[0] <= 'h') {
+                    if (get_file(m.getSourceSquare()) != disam[0] - 'a') continue;
+                } else if (disam[0] >= '1' && disam[0] <= '8') {
+                    if (get_rank(m.getSourceSquare()) != disam[0] - '1') continue;
+                }
+            }
+        }
+        return m;
+    }
+
+    return MOVE_NONE;
+}
+
+int run_epd_test(const std::string& filepath, int movetime_ms) {
+    std::ifstream file(filepath);
+    if (!file) {
+        std::cout << "info string Error: could not open EPD file " << filepath << std::endl;
+        return 0;
+    }
+
+    std::string line;
+    int total = 0;
+    int solved = 0;
+    uint64_t total_nodes = 0;
+    auto start_all = std::chrono::steady_clock::now();
+
+    std::cout << "\n======================================================\n";
+    std::cout << "Running EPD Test Suite: " << filepath << "\n";
+    std::cout << "Time per problem: " << movetime_ms << " ms\n";
+    std::cout << "======================================================\n" << std::endl;
+
+    while (std::getline(file, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty() || line[0] == '#') continue;
+
+        std::stringstream ss(line);
+        std::string p1, p2, p3, p4;
+        if (!(ss >> p1 >> p2 >> p3 >> p4)) continue;
+
+        std::string fen = p1 + " " + p2 + " " + p3 + " " + p4;
+        std::string token;
+        std::string id_str = "Position " + std::to_string(total + 1);
+        std::vector<std::string> best_moves;
+
+        while (ss >> token) {
+            if (token == "bm") {
+                std::string bm_token;
+                while (ss >> bm_token) {
+                    if (bm_token.back() == ';') {
+                        bm_token.pop_back();
+                        if (!bm_token.empty()) best_moves.push_back(bm_token);
+                        break;
+                    }
+                    best_moves.push_back(bm_token);
+                }
+            } else if (token == "id") {
+                std::string id_token;
+                ss >> id_token;
+                if (!id_token.empty() && id_token.front() == '"') id_token.erase(0, 1);
+                if (!id_token.empty() && id_token.back() == ';') id_token.pop_back();
+                if (!id_token.empty() && id_token.back() == '"') id_token.pop_back();
+                id_str = id_token;
+            }
+        }
+
+        if (best_moves.empty()) continue;
+
+        Board board;
+        if (!board.load_from_fen(fen)) continue;
+
+        total++;
+        join_search_thread();
+        g_tt.clear();
+        g_stop_search.store(false);
+        g_time_limit_soft_ms = movetime_ms;
+        g_time_limit_hard_ms = movetime_ms;
+        g_start_time = std::chrono::steady_clock::now();
+
+        SearchResult res = search(board, 32);
+        total_nodes += res.nodes_searched;
+
+        bool is_solved = false;
+        std::string played_str = res.best_move.to_string();
+
+        for (const auto& bm : best_moves) {
+            Move target_m = parse_san_or_uci_move(board, bm);
+            if (!target_m.is_none() && res.best_move == target_m) {
+                is_solved = true;
+                break;
+            }
+            if (played_str == bm) {
+                is_solved = true;
+                break;
+            }
+        }
+
+        if (is_solved) {
+            solved++;
+            std::cout << "[" << std::setw(3) << total << "] " << id_str << ": SOLVED! (" << played_str << ")" << std::endl;
+        } else {
+            std::string expected_list = "";
+            for (const auto& bm : best_moves) {
+                if (!expected_list.empty()) expected_list += ", ";
+                expected_list += bm;
+            }
+            std::cout << "[" << std::setw(3) << total << "] " << id_str << ": FAILED (played " << played_str 
+                      << ", expected " << expected_list << ")" << std::endl;
+        }
+    }
+
+    auto end_all = std::chrono::steady_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_all - start_all).count();
+    if (elapsed_ms <= 0) elapsed_ms = 1;
+
+    double pct = (total > 0) ? (100.0 * solved / total) : 0.0;
+    uint64_t nps = (total_nodes * 1000ULL) / static_cast<uint64_t>(elapsed_ms);
+
+    std::cout << "\n======================================================\n";
+    std::cout << "EPD Results: " << solved << " / " << total << " solved (" 
+              << std::fixed << std::setprecision(1) << pct << "%)\n";
+    std::cout << "Total Time : " << elapsed_ms << " ms | NPS: " << nps << "\n";
+    std::cout << "======================================================\n" << std::endl;
+
+    return solved;
+}
+
+void parse_epd(std::stringstream& ss) {
+    std::string filepath;
+    int movetime_ms = 1000;
+    if (ss >> filepath) {
+        ss >> movetime_ms;
+        run_epd_test(filepath, movetime_ms);
+    } else {
+        std::cout << "info string Usage: epd <filepath> [movetime_ms]" << std::endl;
+    }
 }
 
 } // namespace ChessEngine

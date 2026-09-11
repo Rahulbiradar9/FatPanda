@@ -140,4 +140,12 @@ TEST(UciTest, SetOptionClearHashAndMoveOverhead) {
     EXPECT_EQ(g_search_overhead_ms, 20);
 }
 
+TEST(UciTest, EpdTestSuiteRunner) {
+    int solved = run_epd_test("../tests/data/sample.epd", 50);
+    if (solved == 0) {
+        solved = run_epd_test("tests/data/sample.epd", 50);
+    }
+    EXPECT_GT(solved, 0);
+}
+
 
