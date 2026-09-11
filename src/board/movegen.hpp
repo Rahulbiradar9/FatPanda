@@ -32,6 +32,9 @@ bool is_square_attacked(const Board& board, Square sq, Color attacker);
 // Determine whether a side's King is in check
 bool is_in_check(const Board& board, Color color);
 
+// Fast check whether a move is pseudo-legal for the side to move
+bool is_pseudo_legal(const Board& board, Move m);
+
 // Generate pseudo-legal moves into MoveList (Zero-allocation)
 void generatePseudoLegalMoves(const Board& board, MoveList& moves);
 void generatePseudoLegalCaptures(const Board& board, MoveList& moves);

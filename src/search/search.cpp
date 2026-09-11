@@ -382,6 +382,161 @@ void order_moves(const Board& board, std::vector<Move>& moves, Move pv_move, int
     }
 }
 
+enum class PickerStage {
+    TT_MOVE,
+    GEN_CAPTURES,
+    GOOD_CAPTURES,
+    KILLER_1,
+    KILLER_2,
+    COUNTER_MOVE,
+    GEN_QUIETS,
+    QUIETS,
+    BAD_CAPTURES,
+    DONE
+};
+
+class MovePicker {
+public:
+    MovePicker(const Board& board, Move tt_move, int ply, const SearchInfo& info, MoveContext prev1 = {}, MoveContext prev2 = {})
+        : board_(board), tt_move_(tt_move), ply_(ply), info_(info), prev1_(prev1), prev2_(prev2)
+    {
+        stage_ = (tt_move != MOVE_NONE && is_pseudo_legal(board, tt_move)) ? PickerStage::TT_MOVE : PickerStage::GEN_CAPTURES;
+    }
+
+    Move next() {
+        while (stage_ != PickerStage::DONE) {
+            switch (stage_) {
+            case PickerStage::TT_MOVE:
+                stage_ = PickerStage::GEN_CAPTURES;
+                return tt_move_;
+
+            case PickerStage::GEN_CAPTURES:
+                generatePseudoLegalCaptures(board_, captures_);
+                for (size_t i = 0; i < captures_.size(); ++i) {
+                    captures_.scores[i] = score_move(board_, captures_[i], tt_move_, ply_, info_, prev1_, prev2_);
+                }
+                cur_capture_idx_ = 0;
+                stage_ = PickerStage::GOOD_CAPTURES;
+                [[fallthrough]];
+
+            case PickerStage::GOOD_CAPTURES:
+                while (cur_capture_idx_ < captures_.size()) {
+                    size_t best_i = cur_capture_idx_;
+                    for (size_t j = cur_capture_idx_ + 1; j < captures_.size(); ++j) {
+                        if (captures_.scores[j] > captures_.scores[best_i]) {
+                            best_i = j;
+                        }
+                    }
+                    std::swap(captures_.moves[cur_capture_idx_], captures_.moves[best_i]);
+                    std::swap(captures_.scores[cur_capture_idx_], captures_.scores[best_i]);
+
+                    Move m = captures_.moves[cur_capture_idx_++];
+                    if (m == tt_move_) continue;
+
+                    if (g_search_settings.see && !see_ge(board_, m, 0)) {
+                        bad_captures_.push_back(m);
+                        continue;
+                    }
+                    return m;
+                }
+                stage_ = PickerStage::KILLER_1;
+                [[fallthrough]];
+
+            case PickerStage::KILLER_1:
+                stage_ = PickerStage::KILLER_2;
+                if (ply_ < MAX_PLY) {
+                    Move k1 = info_.killer_moves[0][ply_];
+                    if (k1 != MOVE_NONE && k1 != tt_move_ && !k1.isCapture() && is_pseudo_legal(board_, k1)) {
+                        killer_1_ = k1;
+                        return k1;
+                    }
+                }
+                [[fallthrough]];
+
+            case PickerStage::KILLER_2:
+                stage_ = PickerStage::COUNTER_MOVE;
+                if (ply_ < MAX_PLY) {
+                    Move k2 = info_.killer_moves[1][ply_];
+                    if (k2 != MOVE_NONE && k2 != tt_move_ && k2 != killer_1_ && !k2.isCapture() && is_pseudo_legal(board_, k2)) {
+                        killer_2_ = k2;
+                        return k2;
+                    }
+                }
+                [[fallthrough]];
+
+            case PickerStage::COUNTER_MOVE:
+                stage_ = PickerStage::GEN_QUIETS;
+                if (prev1_.piece != Piece::None && prev1_.to != Square::None) {
+                    Move cm = info_.counter_moves[static_cast<int>(prev1_.piece)][static_cast<int>(prev1_.to)];
+                    if (cm != MOVE_NONE && cm != tt_move_ && cm != killer_1_ && cm != killer_2_ && !cm.isCapture() && is_pseudo_legal(board_, cm)) {
+                        counter_move_ = cm;
+                        return cm;
+                    }
+                }
+                [[fallthrough]];
+
+            case PickerStage::GEN_QUIETS:
+                generatePseudoLegalQuiets(board_, quiets_);
+                for (size_t i = 0; i < quiets_.size(); ++i) {
+                    quiets_.scores[i] = score_move(board_, quiets_[i], tt_move_, ply_, info_, prev1_, prev2_);
+                }
+                cur_quiet_idx_ = 0;
+                stage_ = PickerStage::QUIETS;
+                [[fallthrough]];
+
+            case PickerStage::QUIETS:
+                while (cur_quiet_idx_ < quiets_.size()) {
+                    size_t best_i = cur_quiet_idx_;
+                    for (size_t j = cur_quiet_idx_ + 1; j < quiets_.size(); ++j) {
+                        if (quiets_.scores[j] > quiets_.scores[best_i]) {
+                            best_i = j;
+                        }
+                    }
+                    std::swap(quiets_.moves[cur_quiet_idx_], quiets_.moves[best_i]);
+                    std::swap(quiets_.scores[cur_quiet_idx_], quiets_.scores[best_i]);
+
+                    Move m = quiets_.moves[cur_quiet_idx_++];
+                    if (m == tt_move_ || m == killer_1_ || m == killer_2_ || m == counter_move_) continue;
+                    return m;
+                }
+                stage_ = PickerStage::BAD_CAPTURES;
+                [[fallthrough]];
+
+            case PickerStage::BAD_CAPTURES:
+                if (cur_bad_idx_ < bad_captures_.size()) {
+                    return bad_captures_[cur_bad_idx_++];
+                }
+                stage_ = PickerStage::DONE;
+                break;
+
+            case PickerStage::DONE:
+                return MOVE_NONE;
+            }
+        }
+        return MOVE_NONE;
+    }
+
+private:
+    const Board& board_;
+    Move tt_move_ = MOVE_NONE;
+    int ply_ = 0;
+    const SearchInfo& info_;
+    MoveContext prev1_{};
+    MoveContext prev2_{};
+
+    PickerStage stage_ = PickerStage::DONE;
+    MoveList captures_;
+    MoveList quiets_;
+    MoveList bad_captures_;
+    size_t cur_capture_idx_ = 0;
+    size_t cur_quiet_idx_ = 0;
+    size_t cur_bad_idx_ = 0;
+
+    Move killer_1_ = MOVE_NONE;
+    Move killer_2_ = MOVE_NONE;
+    Move counter_move_ = MOVE_NONE;
+};
+
 // Generate legal captures and promotions (noisy moves) for Quiescence Search
 std::vector<Move> generate_legal_captures(Board& board) {
     std::vector<Move> pseudo = generate_pseudo_legal_moves(board);
@@ -754,14 +909,6 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         depth -= IIR_REDUCTION;
     }
 
-    MoveList moves;
-    generatePseudoLegalMoves(board, moves);
-
-    // Score all pseudo-legal moves into moves.scores
-    for (size_t i = 0; i < moves.size(); ++i) {
-        moves.scores[i] = score_move(board, moves[i], tt_move, ply, info, prev1, prev2);
-    }
-
     // Singular Extension (with Double Extension):
     int extension = 0;
     if (g_search_settings.singular
@@ -801,17 +948,10 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     std::array<Move, 64> quiets_searched{};
     int quiets_count = 0;
 
-    for (size_t i = 0; i < moves.size(); ++i) {
-        // Selection sort to pick the best remaining move
-        size_t best_i = i;
-        for (size_t j = i + 1; j < moves.size(); ++j) {
-            if (moves.scores[j] > moves.scores[best_i]) {
-                best_i = j;
-            }
-        }
-        std::swap(moves.moves[i], moves.moves[best_i]);
-        std::swap(moves.scores[i], moves.scores[best_i]);
-        Move m = moves.moves[i];
+    MovePicker picker(board, tt_move, ply, info, prev1, prev2);
+    Move m = MOVE_NONE;
+
+    while ((m = picker.next()) != MOVE_NONE) {
         if (m == excluded_move) {
             continue;
         }

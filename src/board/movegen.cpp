@@ -683,6 +683,69 @@ std::vector<Move> generateLegalMoves(Board& board) {
     return legal;
 }
 
+bool is_pseudo_legal(const Board& board, Move m) {
+    if (m.is_none()) return false;
+    Square from = m.getSourceSquare();
+    Square to = m.getDestinationSquare();
+    Piece p = board.get_piece(from);
+    if (p == Piece::None) return false;
+    Color us = board.get_side_to_move();
+    if (get_piece_color(p) != us) return false;
+
+    Piece target = board.get_piece(to);
+    Color target_color = (target != Piece::None) ? get_piece_color(target) : Color::None;
+    Bitboard occ = board.get_occupancy(Color::None);
+    PieceType pt = get_piece_type(p);
+
+    if (m.isCastling()) {
+        MoveList quiets;
+        generatePseudoLegalQuiets(board, quiets);
+        for (size_t i = 0; i < quiets.size(); ++i) {
+            if (quiets[i] == m) return true;
+        }
+        return false;
+    }
+
+    if (target_color == us) return false;
+
+    if (pt == PieceType::Pawn) {
+        if (m.isEnPassant()) {
+            return to == board.get_en_passant_square();
+        }
+        int from_rank = get_rank(from);
+        int to_rank = get_rank(to);
+        int from_file = get_file(from);
+        int to_file = get_file(to);
+        int dir = (us == Color::White) ? 1 : -1;
+
+        if (from_file == to_file) {
+            if (target != Piece::None) return false;
+            if (to_rank == from_rank + dir) return true;
+            int start_rank = (us == Color::White) ? 1 : 6;
+            Square skipped = (us == Color::White) ? static_cast<Square>(static_cast<int>(from) + 8)
+                                                  : static_cast<Square>(static_cast<int>(from) - 8);
+            if (from_rank == start_rank && to_rank == from_rank + 2 * dir && board.get_piece(skipped) == Piece::None) {
+                return true;
+            }
+            return false;
+        } else if (std::abs(from_file - to_file) == 1 && to_rank == from_rank + dir) {
+            return target != Piece::None && target_color != us;
+        }
+        return false;
+    } else if (pt == PieceType::Knight) {
+        return (get_knight_attacks(from) & (1ULL << static_cast<int>(to))) != 0;
+    } else if (pt == PieceType::Bishop) {
+        return (get_bishop_attacks(from, occ) & (1ULL << static_cast<int>(to))) != 0;
+    } else if (pt == PieceType::Rook) {
+        return (get_rook_attacks(from, occ) & (1ULL << static_cast<int>(to))) != 0;
+    } else if (pt == PieceType::Queen) {
+        return (get_queen_attacks(from, occ) & (1ULL << static_cast<int>(to))) != 0;
+    } else if (pt == PieceType::King) {
+        return (get_king_attacks(from) & (1ULL << static_cast<int>(to))) != 0;
+    }
+    return false;
+}
+
 std::vector<Move> generate_legal_moves(Board& board) {
     return generateLegalMoves(board);
 }
