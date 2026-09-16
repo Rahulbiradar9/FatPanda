@@ -1,115 +1,214 @@
 <div align="center">
   <img width="240" height="240" alt="FatPanda" src="logo.png" />
-  <h1>FatPanda</h1>
+  <h1>FatPanda Chess Engine</h1>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![C++20](https://img.shields.io/badge/Standard-C%2B%2B20-red.svg)](https://en.cppreference.com/w/cpp/20)
 [![GitHub Release](https://img.shields.io/github/v/release/Rahulbiradar9/FatPanda?logo=github&color=097BBC)](https://github.com/Rahulbiradar9/FatPanda/releases/latest)
 </div>
 
-FatPanda is a clean, modular, and performance-oriented competitive chess engine built from scratch in C++20. It implements efficient bitboard representations, legal move generation, transposition tables with Zobrist hashing, and a highly tuned search-evaluation architecture.
- 
-## Releases
+FatPanda is an open-source competitive chess engine built from scratch in C++20. Designed for performance, modularity, and tactical precision, it features an efficient bitboard representation, neural network (NNUE) and classical evaluation, advanced alpha-beta search heuristics, Syzygy endgame tablebase support, Polyglot opening books, and full UCI protocol compliance.
 
-| Version | Description | Release Date |
-| --- | --- | --- |
-| [FatPanda v0.1.0][v0.1.0] | First stable release with Bitboard movegen, Alpha-Beta search, transposition tables, and classical evaluation. | Aug 2, 2026 |
+---
 
-[v0.1.0]: https://github.com/Rahulbiradar9/FatPanda/releases/tag/v0.1.0
+## Rating & Releases
 
-## Features
+| Version | Description / Highlights | Release Date |
+| :--- | :--- | :--- |
+| [FatPanda v0.1.0](https://github.com/Rahulbiradar9/FatPanda/releases/tag/v0.1.0) | First stable release featuring Bitboard movegen, Alpha-Beta search with advanced heuristics, NNUE evaluation, Polyglot opening books, and Syzygy endgame tablebases. | Aug 2, 2026 |
 
-- **Board Representation**: Efficient Bitboard architecture with precalculated attack tables, custom FEN parsing, and board visualization.
-- **Search Techniques**:
-  - Negamax search with Alpha-Beta pruning
-  - Iterative Deepening
-  - Quiescence Search to avoid the horizon effect
-  - Transposition Tables (TT) for caching search results
-- **Move Ordering & Pruning**:
-  - MVV-LVA (Most Valuable Victim - Least Valuable Aggressor) ordering
-  - Killer Move heuristic
-  - History heuristic
-  - Principal Variation (PV) ordering
-- **Evaluation**: Custom classical evaluation function assessing:
-  - Material balance
-  - Piece-Square Tables (PST) for positional play
-  - Pawn structures (passed, isolated, doubled, and backward pawns)
-  - King safety and piece mobility
-- **Interface**: Full support for the Universal Chess Interface (UCI) protocol.
+> [!NOTE]
+> Rating lists (SPCC, CCRL Blitz, and CCRL 40/15) will be updated as tournament testing and community rating submissions progress.
 
-## Getting started
+---
+
+## Getting Started
 
 ### Precompiled binaries
 
-Precompiled binaries will be available on the [GitHub Releases page](https://github.com/Rahulbiradar9/FatPanda/releases) in future releases.
+Precompiled binaries for official releases are available on the [GitHub Releases page](https://github.com/Rahulbiradar9/FatPanda/releases).
+
+- **AVX2 / BMI2**: Fast, optimized for modern CPUs with AVX2/BMI2 instruction support (recommended).
+- **Generic**: Portable build compatible with virtually all 64-bit CPUs, but slower than AVX2 builds.
+
+> [!TIP]
+> If you are unsure which binary to use, try the AVX2 build first. If it does not run on your system, fall back to the generic build.
+
+---
 
 ### Building from source
 
-To build FatPanda from source, make sure you have:
+To build FatPanda from source, ensure you have:
 
-- A **C++20** compatible compiler (e.g., GCC 10+, Clang 10+, or MSVC 2019+)
+- A **C++20** compliant compiler:
+  - GCC 10+
+  - Clang 10+
+  - MSVC 2019+ (Visual Studio 16.0 or newer)
 - **CMake 3.14+**
-- Build tools (Make, Ninja, MSBuild, etc.)
+- Build tools (Make, Ninja, or MSBuild)
 
-Once installed, you can build FatPanda using CMake:
+#### Standard Build
 
 ```bash
-# 1. Configure the build
+# 1. Configure the build with Release optimizations
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-# 2. Build the engine
+# 2. Build the engine executable
 cmake --build build --config Release
 ```
 
-The compiled executable will be located in:
+The compiled binary will be located in:
 - **Windows (MSVC)**: `.\build\src\Release\FatPanda.exe`
-- **Linux / macOS / Windows (Ninja/Make)**: `./build/src/FatPanda`
+- **Linux / macOS / Ninja**: `./build/src/FatPanda`
+
+#### Profile-Guided Optimization (PGO) builds
+
+FatPanda includes built-in PGO support in CMake to maximize search speeds and NPS (Nodes Per Second):
+
+```bash
+# Step 1: Configure and build with profile generation instrumentation
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_PGO=GENERATE
+cmake --build build --config Release
+
+# Step 2: Run benchmark to collect execution profile data
+./build/src/Release/FatPanda.exe --bench 13 1 16
+
+# Step 3: Reconfigure and build with profile-guided optimization applied
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_PGO=APPLY
+cmake --build build --config Release
+```
+
+---
 
 ### Running unit tests
 
-FatPanda includes a comprehensive test suite powered by GoogleTest. To execute all unit tests, run:
+FatPanda features a comprehensive test suite powered by GoogleTest covering move generation, search, evaluation, Syzygy tablebases, and UCI parsing:
 
 ```bash
 cd build
 ctest -C Release --output-on-failure
 ```
 
-### Usage
+---
 
-FatPanda is a backend chess engine communicating via the standard UCI protocol. It is designed to be used with UCI-compatible Graphical User Interfaces (GUIs), such as:
+## Usage
+
+FatPanda is a backend chess engine communicating via the standard **Universal Chess Interface (UCI)** protocol. It is designed to be used with UCI-compatible Graphical User Interfaces (GUIs), such as:
+
 - [Cute Chess](https://github.com/cutechess/cutechess)
-- [En Croissant](https://encroissant.org)
+- [En Croissant](https://encroissant.org/)
 - [Nibbler](https://github.com/rooklift/nibbler)
 
-Alternatively, you can interact with the engine directly through the command line or run its demo verification mode.
+*(See [`CuteChess_Testing_Guide_FatPanda_vs_Stockfish.docx`](CuteChess_Testing_Guide_FatPanda_vs_Stockfish.docx) for match configuration instructions).*
 
-#### Command-line arguments
-- `demo` / `--demo`: Run a demo verification checking the move representation, move generator, static evaluator, FEN parser, and starting board layout.
+---
 
-```bash
-# Example running the demo mode
-./build/src/FatPanda --demo
-```
+### UCI Options
 
-### UCI options
+FatPanda supports the following UCI configuration options:
 
-FatPanda supports the following UCI options:
+| Name | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `Hash` | spin | 64 | Size of the transposition table in megabytes [1–2048] |
+| `Clear Hash` | button | — | Clear the transposition table contents |
+| `Threads` | spin | 1 | Number of search threads [1–128] |
+| `MultiPV` | spin | 1 | Number of principal variations to calculate and output [1–256] |
+| `Move Overhead` | spin | 20 | Time buffer in ms reserved to prevent flagging on time [0–5000] |
+| `UCI_Chess960` | check | false | Enable Chess960 (Fischer Random Chess) support |
+| `Ponder` | check | true | Enable pondering (calculating while waiting for opponent's move) |
+| `OwnBook` | check | true | Enable built-in Polyglot opening book probing |
+| `BookFile` | string | `book.bin` | Path to the Polyglot opening book file (`.bin`) |
+| `SyzygyPath` | string | `<empty>` | Path to Syzygy endgame tablebase directory (`.rtbw` / `.rtbz`) |
+| `SyzygyUse` | check | false | Enable Syzygy endgame tablebase probing |
+| `Use NNUE` | check | false | Enable NNUE neural network evaluation |
+| `EvalFile` | string | `nn.nnue` | Path to external NNUE evaluation weight file |
+| `SingularExtension` | check | true | Enable singular move extensions |
+| `SingularMargin` | spin | 2 | Margin for singular extension verification [0–100] |
+| `IIR` | check | true | Enable Internal Iterative Reduction |
+| `LMP` | check | true | Enable Late Move Pruning |
+| `LMPMaxDepth` | spin | 8 | Maximum depth threshold for Late Move Pruning [1–16] |
+| `ProbCut` | check | true | Enable ProbCut forward pruning |
+| `ProbCutMargin` | spin | 100 | Margin for ProbCut pruning [10–500] |
+| `CorrectionHistory` | check | true | Enable correction history adjustment to evaluation |
+| `DeltaMargin` | spin | 200 | Margin for delta pruning in quiescence search [0–1000] |
+| `Seed` | spin | 42 | Random seed for deterministic reproducibility |
 
-| Option | Default | Description |
-| --- | --- | --- |
-| Hash | 64 | Size of the transposition table in MB [1–2048] |
+---
 
-### Custom UCI commands
+### Custom Commands
 
-Along with the standard UCI commands (like `position`, `go`, `stop`, `ucinewgame`), FatPanda supports:
+Along with standard UCI commands (`uci`, `isready`, `ucinewgame`, `position`, `go`, `stop`, `ponderhit`, `quit`), FatPanda supports custom interactive commands:
 
 | Command | Description |
-| --- | --- |
-| `print` or `d` | Print the current board position and active FEN in a human-readable format |
+| :--- | :--- |
+| `bench [depth] [threads] [hash]` | Run the benchmark across standard positions to measure nodes and speed (NPS) |
+| `d` or `print` | Display the current board in ASCII format alongside the active FEN |
+| `epd <filepath> [movetime_ms]` | Run an EPD tactical test suite to test accuracy and solve rate |
+| `tune export` | Export the current evaluation parameters |
+| `tune import <params>` | Load custom evaluation parameters |
+| `tune selfplay [games]` | Run an automated self-play parameter tuning match |
+| `datagen [games] [depth] [output]` | Generate self-play training data records for NNUE training |
+
+#### Command-Line Arguments (CLI)
+
+You can also pass arguments directly when launching the binary:
+
+```bash
+# Run benchmark directly (default: depth 13, 1 thread, 16MB hash)
+./FatPanda --bench 13 1 16
+
+# Run self-verification diagnostic check
+./FatPanda --demo
+
+# Set specific random seed
+./FatPanda --seed 12345
+
+# Print version and git commit hash
+./FatPanda --version
+```
+
+---
+
+## Features Overview
+
+- **Board Representation**:
+  - High-performance Bitboard representation
+  - Precalculated magic attack bitboards for sliding and non-sliding pieces
+  - Zobrist hashing for fast transposition lookups and repetition detection
+  - Robust FEN parser with full Chess960 support
+  - Polyglot opening book parser
+  - Syzygy 3-4-5-6 piece endgame tablebase probing
+
+- **Search Architecture**:
+  - Negamax search with Principal Variation Search (PVS) & Alpha-Beta pruning
+  - Iterative Deepening with aspiration windows
+  - Quiescence Search with tactical delta pruning
+  - Transposition Table (TT) with depth-preferred replacement scheme
+  - Lazy SMP multi-threading support
+
+- **Heuristics & Pruning**:
+  - Singular Extensions
+  - Late Move Reductions (LMR) & Late Move Pruning (LMP)
+  - Null Move Pruning (NMP)
+  - ProbCut forward pruning
+  - Internal Iterative Reduction (IIR)
+  - Move Ordering: Hash move, MVV-LVA, Killer heuristic, Countermove heuristic, History heuristic, Correction History
+
+- **Evaluation**:
+  - Dual-perspective Efficiently Updatable Neural Network (NNUE) evaluation
+  - Hand-crafted classical evaluation (Material balance, Piece-Square Tables, Pawn structure analysis, King safety, Mobility)
+
+---
 
 ## Acknowledgements
 
-- The [Chess Programming Wiki](https://www.chessprogramming.org/Main_Page) for its invaluable resources on chess programming concepts.
-- Open-source engines like [Stockfish](https://github.com/official-stockfish/Stockfish) and [Reckless](https://github.com/codedeliveryservice/Reckless) for inspiring design patterns and clean architectures.
+- The [Chess Programming Wiki](https://www.chessprogramming.org/Main_Page) for its invaluable educational resources and algorithms.
+- Open-source chess engines including [Stockfish](https://github.com/official-stockfish/Stockfish), [Reckless](https://github.com/codedeliveryservice/Reckless), [PlentyChess](https://github.com/Yoshie2000/PlentyChess), [Ethereal](https://github.com/AndyGrant/Ethereal), and [Berserk](https://github.com/jhonnold/berserk) for inspiring clean engine design patterns and heuristics.
+- [Fathom](https://github.com/jdart1/Fathom) for Syzygy tablebase probing techniques.
+- [Cute Chess](https://github.com/cutechess/cutechess) and [Fastchess](https://github.com/Disservin/fastchess) for match testing tools.
+- Members of the computer chess community and [CCRL](https://www.computerchess.org.uk/ccrl/) testers.
+
+---
 
 ## License
 
