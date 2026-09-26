@@ -232,6 +232,8 @@ int evaluatePawnStructure(const Board& board) {
     Bitboard w_pawns = board.get_piece_bitboard(Piece::WhitePawn);
     Bitboard b_pawns = board.get_piece_bitboard(Piece::BlackPawn);
 
+    constexpr int PASSED_BONUS[8] = { 0, 10, 15, 25, 45, 80, 140, 0 };
+
     // --- White Pawns ---
     Bitboard w_pawns_ref = w_pawns;
     while (w_pawns_ref) {
@@ -251,13 +253,27 @@ int evaluatePawnStructure(const Board& board) {
             score -= 20;
         }
 
+        // Connected / Protected Pawn Bonus
+        if (get_pawn_attacks(sq, Color::Black) & w_pawns) {
+            score += 10;
+        }
+
+        // Phalanx Bonus (pawns side by side)
+        if (file < 7 && test_bit(w_pawns, static_cast<Square>(static_cast<int>(sq) + 1))) {
+            score += 8;
+        }
+
         // Passed Pawn
         Bitboard passed_mask = get_passed_pawn_mask(sq, Color::White);
         if ((passed_mask & b_pawns) == EMPTY_BOARD) {
-            score += 15 + 10 * rank; // More valuable as it advances
+            int bonus = PASSED_BONUS[rank];
             if (get_pawn_attacks(sq, Color::Black) & w_pawns) {
-                score += 15;
+                bonus += 15;
             }
+            if (rank < 7 && test_bit(board.get_occupancy(Color::Black), static_cast<Square>(static_cast<int>(sq) + 8))) {
+                bonus = bonus * 6 / 10;
+            }
+            score += bonus;
         }
     }
 
@@ -280,52 +296,171 @@ int evaluatePawnStructure(const Board& board) {
             score += 20;
         }
 
+        // Connected / Protected Pawn Bonus
+        if (get_pawn_attacks(sq, Color::White) & b_pawns) {
+            score -= 10;
+        }
+
+        // Phalanx Bonus (pawns side by side)
+        if (file < 7 && test_bit(b_pawns, static_cast<Square>(static_cast<int>(sq) + 1))) {
+            score -= 8;
+        }
+
         // Passed Pawn
         Bitboard passed_mask = get_passed_pawn_mask(sq, Color::Black);
         if ((passed_mask & w_pawns) == EMPTY_BOARD) {
-            score -= 15 + 10 * (7 - rank);
+            int bonus = PASSED_BONUS[7 - rank];
             if (get_pawn_attacks(sq, Color::White) & b_pawns) {
-                score -= 15;
+                bonus += 15;
             }
+            if (rank > 0 && test_bit(board.get_occupancy(Color::White), static_cast<Square>(static_cast<int>(sq) - 8))) {
+                bonus = bonus * 6 / 10;
+            }
+            score -= bonus;
         }
     }
 
     return score;
 }
 
+// Evaluate king safety for a given color (White or Black)
+// Returns penalty as a positive integer (subtracted for White, added for Black)
+inline int evaluate_side_king_safety(const Board& board, Color king_color, Bitboard both_occ) {
+    Color enemy_color = (king_color == Color::White) ? Color::Black : Color::White;
+    Piece king_piece = (king_color == Color::White) ? Piece::WhiteKing : Piece::BlackKing;
+    Bitboard k_bb = board.get_piece_bitboard(king_piece);
+    if (!k_bb) return 0;
+
+    Square ksq = get_lsb(k_bb);
+    int k_file = get_file(ksq);
+    int k_rank = get_rank(ksq);
+
+    int penalty = 0;
+
+    Bitboard friendly_pawns = board.get_piece_bitboard(make_piece(king_color, PieceType::Pawn));
+    Bitboard enemy_pawns = board.get_piece_bitboard(make_piece(enemy_color, PieceType::Pawn));
+    Bitboard all_pawns = friendly_pawns | enemy_pawns;
+
+    // 1. Pawn Shelter & File Openness near King
+    int min_file = std::max(0, k_file - 1);
+    int max_file = std::min(7, k_file + 1);
+
+    for (int f = min_file; f <= max_file; ++f) {
+        Bitboard file_mask = FILE_MASKS[f];
+        // Fully open file towards king
+        if ((all_pawns & file_mask) == EMPTY_BOARD) {
+            penalty += (f == k_file) ? 25 : 15;
+        }
+        // Semi-open file (no friendly pawn shielding king)
+        else if ((friendly_pawns & file_mask) == EMPTY_BOARD) {
+            penalty += (f == k_file) ? 18 : 10;
+        }
+    }
+
+    // Pawn shield check for castled kings
+    if (king_color == Color::White && k_rank <= 1) {
+        if (k_file >= 5) {
+            if (board.get_piece(Square::F2) != Piece::WhitePawn) penalty += (board.get_piece(Square::F3) == Piece::WhitePawn ? 8 : 20);
+            if (board.get_piece(Square::G2) != Piece::WhitePawn) penalty += (board.get_piece(Square::G3) == Piece::WhitePawn ? 10 : 22);
+            if (board.get_piece(Square::H2) != Piece::WhitePawn) penalty += (board.get_piece(Square::H3) == Piece::WhitePawn ? 8 : 20);
+        } else if (k_file <= 2) {
+            if (board.get_piece(Square::A2) != Piece::WhitePawn) penalty += (board.get_piece(Square::A3) == Piece::WhitePawn ? 8 : 20);
+            if (board.get_piece(Square::B2) != Piece::WhitePawn) penalty += (board.get_piece(Square::B3) == Piece::WhitePawn ? 10 : 22);
+            if (board.get_piece(Square::C2) != Piece::WhitePawn) penalty += (board.get_piece(Square::C3) == Piece::WhitePawn ? 8 : 20);
+        } else {
+            // King stuck on center files
+            if ((board.get_castling_rights() & (Castling::WK | Castling::WQ)) == 0) {
+                penalty += 30;
+            }
+        }
+    } else if (king_color == Color::Black && k_rank >= 6) {
+        if (k_file >= 5) {
+            if (board.get_piece(Square::F7) != Piece::BlackPawn) penalty += (board.get_piece(Square::F6) == Piece::BlackPawn ? 8 : 20);
+            if (board.get_piece(Square::G7) != Piece::BlackPawn) penalty += (board.get_piece(Square::G6) == Piece::BlackPawn ? 10 : 22);
+            if (board.get_piece(Square::H7) != Piece::BlackPawn) penalty += (board.get_piece(Square::H6) == Piece::BlackPawn ? 8 : 20);
+        } else if (k_file <= 2) {
+            if (board.get_piece(Square::A7) != Piece::BlackPawn) penalty += (board.get_piece(Square::A6) == Piece::BlackPawn ? 8 : 20);
+            if (board.get_piece(Square::B7) != Piece::BlackPawn) penalty += (board.get_piece(Square::B6) == Piece::BlackPawn ? 10 : 22);
+            if (board.get_piece(Square::C7) != Piece::BlackPawn) penalty += (board.get_piece(Square::C6) == Piece::BlackPawn ? 8 : 20);
+        } else {
+            // King stuck on center files
+            if ((board.get_castling_rights() & (Castling::BK | Castling::BQ)) == 0) {
+                penalty += 30;
+            }
+        }
+    }
+
+    // 2. King Attack Zone (Virtual King Ring)
+    Bitboard king_ring = get_king_attacks(ksq);
+    if (king_color == Color::White && k_rank < 7) {
+        king_ring |= (king_ring << 8);
+    } else if (king_color == Color::Black && k_rank > 0) {
+        king_ring |= (king_ring >> 8);
+    }
+
+    int attack_units = 0;
+    int attacker_count = 0;
+
+    // Enemy Knights
+    Bitboard enemy_knights = board.get_piece_bitboard(make_piece(enemy_color, PieceType::Knight));
+    while (enemy_knights) {
+        Square sq = pop_lsb(enemy_knights);
+        Bitboard att = get_knight_attacks(sq) & king_ring;
+        if (att) {
+            attacker_count++;
+            attack_units += 2 * static_cast<int>(count_bits(att));
+        }
+    }
+
+    // Enemy Bishops
+    Bitboard enemy_bishops = board.get_piece_bitboard(make_piece(enemy_color, PieceType::Bishop));
+    while (enemy_bishops) {
+        Square sq = pop_lsb(enemy_bishops);
+        Bitboard att = get_bishop_attacks(sq, both_occ) & king_ring;
+        if (att) {
+            attacker_count++;
+            attack_units += 2 * static_cast<int>(count_bits(att));
+        }
+    }
+
+    // Enemy Rooks
+    Bitboard enemy_rooks = board.get_piece_bitboard(make_piece(enemy_color, PieceType::Rook));
+    while (enemy_rooks) {
+        Square sq = pop_lsb(enemy_rooks);
+        Bitboard att = get_rook_attacks(sq, both_occ) & king_ring;
+        if (att) {
+            attacker_count++;
+            attack_units += 3 * static_cast<int>(count_bits(att));
+        }
+    }
+
+    // Enemy Queens
+    Bitboard enemy_queens = board.get_piece_bitboard(make_piece(enemy_color, PieceType::Queen));
+    while (enemy_queens) {
+        Square sq = pop_lsb(enemy_queens);
+        Bitboard att = get_queen_attacks(sq, both_occ) & king_ring;
+        if (att) {
+            attacker_count++;
+            attack_units += 5 * static_cast<int>(count_bits(att));
+        }
+    }
+
+    if (attacker_count >= 2) {
+        int danger = (attack_units * attack_units) / 6;
+        penalty += std::min(150, danger);
+    }
+
+    return penalty;
+}
+
 int evaluateKingSafety(const Board& board, int eg_weight) {
-    int score = 0;
+    Bitboard both_occ = board.get_occupancy(Color::None);
+    int white_penalty = evaluate_side_king_safety(board, Color::White, both_occ);
+    int black_penalty = evaluate_side_king_safety(board, Color::Black, both_occ);
 
-    Bitboard w_king = board.get_piece_bitboard(Piece::WhiteKing);
-    if (w_king) {
-        Square ksq = get_lsb(w_king);
-        if (ksq == Square::G1 || ksq == Square::H1) {
-            if (board.get_piece(Square::F2) != Piece::WhitePawn) score -= 20;
-            if (board.get_piece(Square::G2) != Piece::WhitePawn) score -= 20;
-            if (board.get_piece(Square::H2) != Piece::WhitePawn) score -= 20;
-        } else if (ksq == Square::C1 || ksq == Square::B1) {
-            if (board.get_piece(Square::A2) != Piece::WhitePawn) score -= 20;
-            if (board.get_piece(Square::B2) != Piece::WhitePawn) score -= 20;
-            if (board.get_piece(Square::C2) != Piece::WhitePawn) score -= 20;
-        }
-    }
-
-    Bitboard b_king = board.get_piece_bitboard(Piece::BlackKing);
-    if (b_king) {
-        Square ksq = get_lsb(b_king);
-        if (ksq == Square::G8 || ksq == Square::H8) {
-            if (board.get_piece(Square::F7) != Piece::BlackPawn) score += 20;
-            if (board.get_piece(Square::G7) != Piece::BlackPawn) score += 20;
-            if (board.get_piece(Square::H7) != Piece::BlackPawn) score += 20;
-        } else if (ksq == Square::C8 || ksq == Square::B8) {
-            if (board.get_piece(Square::A7) != Piece::BlackPawn) score += 20;
-            if (board.get_piece(Square::B7) != Piece::BlackPawn) score += 20;
-            if (board.get_piece(Square::C7) != Piece::BlackPawn) score += 20;
-        }
-    }
-
+    int net_safety = black_penalty - white_penalty;
     // Scale king safety score down as we enter endgame
-    return score * (256 - eg_weight) / 256;
+    return net_safety * (256 - eg_weight) / 256;
 }
 
 int get_game_phase(const Board& board) {
