@@ -946,8 +946,11 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
     Move best_move = MOVE_NONE;
 
     bool futility_pruning = false;
-    if (g_search_settings.futility && depth == 1 && !in_check && (static_eval + 150 < alpha)) {
-        futility_pruning = true;
+    if (g_search_settings.futility && depth <= 3 && !in_check && !pv_node && excluded_move == MOVE_NONE) {
+        int futility_margin = 80 * depth;
+        if (static_eval + futility_margin < alpha) {
+            futility_pruning = true;
+        }
     }
 
     int moves_searched = 0;
@@ -967,7 +970,7 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
         bool is_killer = (ply < MAX_PLY && (m == info.killer_moves[0][ply] || m == info.killer_moves[1][ply]));
         bool is_tt_move = (m == tt_move);
 
-        if (futility_pruning && is_quiet && excluded_move == MOVE_NONE) {
+        if (futility_pruning && is_quiet && !is_killer && !is_tt_move && excluded_move == MOVE_NONE) {
             continue; // Prune quiet move
         }
 
@@ -1069,7 +1072,13 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
                 if (moved_p != Piece::None && is_quiet) {
                     int piece_idx = static_cast<int>(moved_p);
                     int sq_idx = static_cast<int>(to_sq);
-                    reduction -= std::clamp(info.history_moves[piece_idx][sq_idx] / 4096, -2, 2);
+                    int hist = info.history_moves[piece_idx][sq_idx];
+                    if (prev1.piece != Piece::None && prev1.to != Square::None) {
+                        int p1_idx = static_cast<int>(prev1.piece);
+                        int to1_idx = static_cast<int>(prev1.to);
+                        hist += info.cont_history_1ply[p1_idx][to1_idx][piece_idx][sq_idx];
+                    }
+                    reduction -= std::clamp(hist / 4096, -2, 2);
                 }
                 if (!pv_node) reduction += 1;
                 if (!improving) reduction += 1;
@@ -1102,7 +1111,13 @@ int search_alphabeta(Board& board, int depth, int alpha, int beta, int ply, Sear
                 if (moved_p != Piece::None && is_quiet) {
                     int piece_idx = static_cast<int>(moved_p);
                     int sq_idx = static_cast<int>(to_sq);
-                    reduction -= std::clamp(info.history_moves[piece_idx][sq_idx] / 4096, -2, 2);
+                    int hist = info.history_moves[piece_idx][sq_idx];
+                    if (prev1.piece != Piece::None && prev1.to != Square::None) {
+                        int p1_idx = static_cast<int>(prev1.piece);
+                        int to1_idx = static_cast<int>(prev1.to);
+                        hist += info.cont_history_1ply[p1_idx][to1_idx][piece_idx][sq_idx];
+                    }
+                    reduction -= std::clamp(hist / 4096, -2, 2);
                 }
                 if (!pv_node) reduction += 1;
                 if (!improving) reduction += 1;
@@ -1451,7 +1466,7 @@ SearchResult search_thread(Board& board, int max_depth, int thread_id) {
 
             SearchResult result;
             if (g_search_settings.aspiration && depth >= 5 && pv_idx == 0) {
-                int base_delta = 50 + (thread_id % 4) * 15;
+                int base_delta = 20 + (thread_id % 4) * 8;
                 int alpha = std::max(-INFINITY_SCORE, last_score - base_delta);
                 int beta = std::min(INFINITY_SCORE, last_score + base_delta);
                 int window = base_delta;
@@ -1464,10 +1479,10 @@ SearchResult search_thread(Board& board, int max_depth, int thread_id) {
                     
                     if (result.score <= alpha) {
                         alpha = std::max(-INFINITY_SCORE, alpha - window);
-                        window += window / 2;
+                        window += window * 2 / 3;
                     } else if (result.score >= beta) {
                         beta = std::min(INFINITY_SCORE, beta + window);
-                        window += window / 2;
+                        window += window * 2 / 3;
                     } else {
                         break;
                     }
