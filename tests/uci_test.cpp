@@ -141,7 +141,10 @@ TEST(UciTest, SetOptionClearHashAndMoveOverhead) {
 }
 
 TEST(UciTest, EpdTestSuiteRunner) {
-    int solved = run_epd_test("../tests/data/sample.epd", 50);
+    int solved = run_epd_test("../../tests/data/sample.epd", 50);
+    if (solved == 0) {
+        solved = run_epd_test("../tests/data/sample.epd", 50);
+    }
     if (solved == 0) {
         solved = run_epd_test("tests/data/sample.epd", 50);
     }

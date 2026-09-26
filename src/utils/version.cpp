@@ -6,6 +6,6 @@
 
 namespace ChessEngine {
 std::string get_version_string() {
-    return std::string("0.1.0-") + GIT_COMMIT_HASH;
+    return std::string("0.1.1-") + GIT_COMMIT_HASH;
 }
 }

@@ -11,14 +11,25 @@ FatPanda is an open-source competitive chess engine built from scratch in C++20.
 
 ---
 
-## Rating & Releases
+## Rating
 
-| Version | Description / Highlights | Release Date |
-| :--- | :--- | :--- |
-| [FatPanda v0.1.0](https://github.com/Rahulbiradar9/FatPanda/releases/tag/v0.1.0) | First stable release featuring Bitboard movegen, Alpha-Beta search with advanced heuristics, NNUE evaluation, Polyglot opening books, and Syzygy endgame tablebases. | Aug 2, 2026 |
+| Version | [SPCC](https://www.sp-cc.de/) | [CCRL Blitz](https://www.computerchess.org.uk/ccrl/404/cgi/compare_engines.cgi?class=Single-CPU+engines&only_best_in_class=on) | [CCRL 40/15](https://www.computerchess.org.uk/ccrl/4040/cgi/compare_engines.cgi?class=Single-CPU+engines&only_best_in_class=on) | Release Date |
+| :--- | :--- | :--- | :--- | :--- |
+| [FatPanda v0.1.1](https://github.com/Rahulbiradar9/FatPanda/releases/tag/v0.1.1) | — | ~2060 (Est.) | — | Sep 26, 2026 |
+| [FatPanda v0.1.0](https://github.com/Rahulbiradar9/FatPanda/releases/tag/v0.1.0) | — | ~2060 (Est.) | — | Aug 2, 2026 |
 
 > [!NOTE]
-> Rating lists (SPCC, CCRL Blitz, and CCRL 40/15) will be updated as tournament testing and community rating submissions progress.
+> Rating lists (SPCC, CCRL Blitz, and CCRL 40/15) will be updated as official tournament testing and community rating submissions progress.
+
+### Benchmark Matches & PGN Records
+
+Calibration matches played in Cute Chess (100 games per tier, 300 games total) against calibrated Stockfish opponents:
+
+| Match | Opponent Setting | Score (W - L - D) | Win% | Elo Difference | Performance Rating | Match PGN |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Match 1** | Stockfish **1800 Elo** | 51 – 41 – 8 | 55.0% | +35 | **~1,835 Elo** | [fatpanda_vs_stockfish1800-2.pgn](matches/fatpanda_vs_stockfish1800-2.pgn) |
+| **Match 2** | Stockfish **2200 Elo** | 22 – 60 – 18 | 31.0% | -139.0 ± 66.5 | **~2,061 Elo** | [fatpanda_vs_stockfish2200-4.pgn](matches/fatpanda_vs_stockfish2200-4.pgn) |
+| **Match 3** | Stockfish **2500 Elo** | 5 – 86 – 9 | 9.5% | -391.6 ± 109.4 | **~2,108 Elo** | [fatpanda_vs_stockfish2500-3.pgn](matches/fatpanda_vs_stockfish2500-3.pgn) |
 
 ---
 

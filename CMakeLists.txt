@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(FatPanda VERSION 0.1.0 LANGUAGES CXX)
+project(FatPanda VERSION 0.1.1 LANGUAGES CXX)
 
 # Enforce C++20
 set(CMAKE_CXX_STANDARD 20)
