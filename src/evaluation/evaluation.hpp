@@ -14,7 +14,7 @@ int evaluate_classical(const Board& board);
 int evaluateMaterial(const Board& board);
 int evaluatePieceSquareTables(const Board& board, int eg_weight);
 int evaluateMobility(const Board& board);
-int evaluatePawnStructure(const Board& board);
+int evaluatePawnStructure(const Board& board, int eg_weight = 128);
 int evaluateKingSafety(const Board& board, int eg_weight);
 int evaluateEndgameHeuristics(const Board& board);
 

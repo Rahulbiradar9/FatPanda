@@ -141,24 +141,72 @@ int evaluateMobility(const Board& board) {
     Bitboard w_pawns = board.get_piece_bitboard(Piece::WhitePawn);
     Bitboard b_pawns = board.get_piece_bitboard(Piece::BlackPawn);
 
-    // --- White Mobility & Rook Activity ---
+    // --- White Mobility & Piece Activity ---
     Bitboard w_knights = board.get_piece_bitboard(Piece::WhiteKnight);
     while (w_knights) {
         Square sq = pop_lsb(w_knights);
+        int file = get_file(sq);
+        int rank = get_rank(sq);
+
         score += count_bits(get_knight_attacks(sq) & ~white_occ) * 4;
+
+        // Knight Outpost: rank 3, 4, 5 (4th, 5th, 6th rank), supported by friendly pawn, cannot be attacked by enemy pawn
+        if (rank >= 3 && rank <= 5) {
+            bool supported_by_pawn = (get_pawn_attacks(sq, Color::Black) & w_pawns) != EMPTY_BOARD;
+            if (supported_by_pawn) {
+                Bitboard enemy_pawn_can_attack = EMPTY_BOARD;
+                if (file > 0) {
+                    enemy_pawn_can_attack |= (b_pawns & FILE_MASKS[file - 1] & ~((1ULL << ((rank + 1) * 8)) - 1));
+                }
+                if (file < 7) {
+                    enemy_pawn_can_attack |= (b_pawns & FILE_MASKS[file + 1] & ~((1ULL << ((rank + 1) * 8)) - 1));
+                }
+                if (enemy_pawn_can_attack == EMPTY_BOARD) {
+                    score += (file >= 2 && file <= 5) ? 25 : 15; // Central outposts are strongest
+                }
+            }
+        }
     }
 
     Bitboard w_bishops = board.get_piece_bitboard(Piece::WhiteBishop);
     while (w_bishops) {
         Square sq = pop_lsb(w_bishops);
+        int file = get_file(sq);
+        int rank = get_rank(sq);
+
         score += count_bits(get_bishop_attacks(sq, both_occ) & ~white_occ) * 3;
         Bitboard same_color_pawns = (test_bit(LIGHT_SQUARES, sq)) ? (w_pawns & LIGHT_SQUARES) : (w_pawns & DARK_SQUARES);
         score -= static_cast<int>(count_bits(same_color_pawns)) * 3;
+
+        // Bishop Outpost
+        if (rank >= 3 && rank <= 5) {
+            bool supported_by_pawn = (get_pawn_attacks(sq, Color::Black) & w_pawns) != EMPTY_BOARD;
+            if (supported_by_pawn) {
+                Bitboard enemy_pawn_can_attack = EMPTY_BOARD;
+                if (file > 0) {
+                    enemy_pawn_can_attack |= (b_pawns & FILE_MASKS[file - 1] & ~((1ULL << ((rank + 1) * 8)) - 1));
+                }
+                if (file < 7) {
+                    enemy_pawn_can_attack |= (b_pawns & FILE_MASKS[file + 1] & ~((1ULL << ((rank + 1) * 8)) - 1));
+                }
+                if (enemy_pawn_can_attack == EMPTY_BOARD) {
+                    score += 15;
+                }
+            }
+        }
+
+        // Long diagonal bonus (a1-h8 and h1-a8)
+        constexpr Bitboard MAIN_DIAG_1 = 0x8040201008040201ULL;
+        constexpr Bitboard MAIN_DIAG_2 = 0x0102040810204080ULL;
+        if (test_bit(MAIN_DIAG_1 | MAIN_DIAG_2, sq)) {
+            score += 8;
+        }
     }
 
     Bitboard w_rooks = board.get_piece_bitboard(Piece::WhiteRook);
-    while (w_rooks) {
-        Square sq = pop_lsb(w_rooks);
+    Bitboard w_rooks_copy = w_rooks;
+    while (w_rooks_copy) {
+        Square sq = pop_lsb(w_rooks_copy);
         int file = get_file(sq);
         int rank = get_rank(sq);
 
@@ -174,6 +222,14 @@ int evaluateMobility(const Board& board) {
         } else if ((w_pawns & FILE_MASKS[file]) == EMPTY_BOARD) {
             score += 10; // Semi-open file
         }
+
+        // Connected rooks (battery)
+        if (count_bits(w_rooks) >= 2) {
+            Bitboard other_rooks = w_rooks ^ (1ULL << static_cast<int>(sq));
+            if (get_rook_attacks(sq, both_occ) & other_rooks) {
+                score += 8; // Each connected rook gets +8 (total +16 for both)
+            }
+        }
     }
 
     Bitboard w_queens = board.get_piece_bitboard(Piece::WhiteQueen);
@@ -182,24 +238,72 @@ int evaluateMobility(const Board& board) {
         score += count_bits(get_queen_attacks(sq, both_occ) & ~white_occ) * 1;
     }
 
-    // --- Black Mobility & Rook Activity ---
+    // --- Black Mobility & Piece Activity ---
     Bitboard b_knights = board.get_piece_bitboard(Piece::BlackKnight);
     while (b_knights) {
         Square sq = pop_lsb(b_knights);
+        int file = get_file(sq);
+        int rank = get_rank(sq);
+
         score -= count_bits(get_knight_attacks(sq) & ~black_occ) * 4;
+
+        // Knight Outpost: rank 2, 3, 4 (rank index 4, 3, 2 for Black), supported by friendly pawn, cannot be attacked by enemy pawn
+        if (rank >= 2 && rank <= 4) {
+            bool supported_by_pawn = (get_pawn_attacks(sq, Color::White) & b_pawns) != EMPTY_BOARD;
+            if (supported_by_pawn) {
+                Bitboard enemy_pawn_can_attack = EMPTY_BOARD;
+                if (file > 0) {
+                    enemy_pawn_can_attack |= (w_pawns & FILE_MASKS[file - 1] & ((1ULL << (rank * 8)) - 1));
+                }
+                if (file < 7) {
+                    enemy_pawn_can_attack |= (w_pawns & FILE_MASKS[file + 1] & ((1ULL << (rank * 8)) - 1));
+                }
+                if (enemy_pawn_can_attack == EMPTY_BOARD) {
+                    score -= (file >= 2 && file <= 5) ? 25 : 15;
+                }
+            }
+        }
     }
 
     Bitboard b_bishops = board.get_piece_bitboard(Piece::BlackBishop);
     while (b_bishops) {
         Square sq = pop_lsb(b_bishops);
+        int file = get_file(sq);
+        int rank = get_rank(sq);
+
         score -= count_bits(get_bishop_attacks(sq, both_occ) & ~black_occ) * 3;
         Bitboard same_color_pawns = (test_bit(LIGHT_SQUARES, sq)) ? (b_pawns & LIGHT_SQUARES) : (b_pawns & DARK_SQUARES);
         score += static_cast<int>(count_bits(same_color_pawns)) * 3;
+
+        // Bishop Outpost
+        if (rank >= 2 && rank <= 4) {
+            bool supported_by_pawn = (get_pawn_attacks(sq, Color::White) & b_pawns) != EMPTY_BOARD;
+            if (supported_by_pawn) {
+                Bitboard enemy_pawn_can_attack = EMPTY_BOARD;
+                if (file > 0) {
+                    enemy_pawn_can_attack |= (w_pawns & FILE_MASKS[file - 1] & ((1ULL << (rank * 8)) - 1));
+                }
+                if (file < 7) {
+                    enemy_pawn_can_attack |= (w_pawns & FILE_MASKS[file + 1] & ((1ULL << (rank * 8)) - 1));
+                }
+                if (enemy_pawn_can_attack == EMPTY_BOARD) {
+                    score -= 15;
+                }
+            }
+        }
+
+        // Long diagonal bonus
+        constexpr Bitboard MAIN_DIAG_1 = 0x8040201008040201ULL;
+        constexpr Bitboard MAIN_DIAG_2 = 0x0102040810204080ULL;
+        if (test_bit(MAIN_DIAG_1 | MAIN_DIAG_2, sq)) {
+            score -= 8;
+        }
     }
 
     Bitboard b_rooks = board.get_piece_bitboard(Piece::BlackRook);
-    while (b_rooks) {
-        Square sq = pop_lsb(b_rooks);
+    Bitboard b_rooks_copy = b_rooks;
+    while (b_rooks_copy) {
+        Square sq = pop_lsb(b_rooks_copy);
         int file = get_file(sq);
         int rank = get_rank(sq);
 
@@ -215,6 +319,14 @@ int evaluateMobility(const Board& board) {
         } else if ((b_pawns & FILE_MASKS[file]) == EMPTY_BOARD) {
             score -= 10; // Semi-open file
         }
+
+        // Connected rooks (battery)
+        if (count_bits(b_rooks) >= 2) {
+            Bitboard other_rooks = b_rooks ^ (1ULL << static_cast<int>(sq));
+            if (get_rook_attacks(sq, both_occ) & other_rooks) {
+                score -= 8;
+            }
+        }
     }
 
     Bitboard b_queens = board.get_piece_bitboard(Piece::BlackQueen);
@@ -226,11 +338,18 @@ int evaluateMobility(const Board& board) {
     return score;
 }
 
-int evaluatePawnStructure(const Board& board) {
+int evaluatePawnStructure(const Board& board, int eg_weight) {
     int score = 0;
 
     Bitboard w_pawns = board.get_piece_bitboard(Piece::WhitePawn);
     Bitboard b_pawns = board.get_piece_bitboard(Piece::BlackPawn);
+    Bitboard both_occ = board.get_occupancy(Color::None);
+
+    Bitboard w_king_bb = board.get_piece_bitboard(Piece::WhiteKing);
+    Bitboard b_king_bb = board.get_piece_bitboard(Piece::BlackKing);
+    bool has_kings = (w_king_bb != EMPTY_BOARD && b_king_bb != EMPTY_BOARD);
+    Square w_ksq = has_kings ? get_lsb(w_king_bb) : Square::A1;
+    Square b_ksq = has_kings ? get_lsb(b_king_bb) : Square::H8;
 
     constexpr int PASSED_BONUS[8] = { 0, 10, 15, 25, 45, 80, 140, 0 };
 
@@ -266,12 +385,24 @@ int evaluatePawnStructure(const Board& board) {
         // Passed Pawn
         Bitboard passed_mask = get_passed_pawn_mask(sq, Color::White);
         if ((passed_mask & b_pawns) == EMPTY_BOARD) {
-            int bonus = PASSED_BONUS[rank];
+            int bonus = PASSED_BONUS[rank] * (256 + eg_weight) / 256;
             if (get_pawn_attacks(sq, Color::Black) & w_pawns) {
                 bonus += 15;
             }
             if (rank < 7 && test_bit(board.get_occupancy(Color::Black), static_cast<Square>(static_cast<int>(sq) + 8))) {
                 bonus = bonus * 6 / 10;
+            }
+            // Free unblocked path to promotion
+            Bitboard front_squares = FILE_MASKS[file] & ~((1ULL << ((rank + 1) * 8)) - 1);
+            if ((front_squares & both_occ) == EMPTY_BOARD) {
+                bonus += (10 + rank * 4) * eg_weight / 256;
+            }
+            // King proximity in endgame
+            if (has_kings) {
+                int w_dist = std::max(std::abs(get_file(w_ksq) - file), std::abs(get_rank(w_ksq) - rank));
+                int b_dist = std::max(std::abs(get_file(b_ksq) - file), std::abs(get_rank(b_ksq) - 7));
+                bonus += (7 - w_dist) * 3 * eg_weight / 256;
+                bonus += (b_dist - 2) * 3 * eg_weight / 256;
             }
             score += bonus;
         }
@@ -293,7 +424,7 @@ int evaluatePawnStructure(const Board& board) {
         // Isolated Pawn
         Bitboard adjacent_files = (file > 0 ? FILE_MASKS[file - 1] : 0) | (file < 7 ? FILE_MASKS[file + 1] : 0);
         if ((adjacent_files & b_pawns) == EMPTY_BOARD) {
-            score += 20;
+            score -= 20;
         }
 
         // Connected / Protected Pawn Bonus
@@ -309,12 +440,24 @@ int evaluatePawnStructure(const Board& board) {
         // Passed Pawn
         Bitboard passed_mask = get_passed_pawn_mask(sq, Color::Black);
         if ((passed_mask & w_pawns) == EMPTY_BOARD) {
-            int bonus = PASSED_BONUS[7 - rank];
+            int bonus = PASSED_BONUS[7 - rank] * (256 + eg_weight) / 256;
             if (get_pawn_attacks(sq, Color::White) & b_pawns) {
                 bonus += 15;
             }
             if (rank > 0 && test_bit(board.get_occupancy(Color::White), static_cast<Square>(static_cast<int>(sq) - 8))) {
                 bonus = bonus * 6 / 10;
+            }
+            // Free unblocked path to promotion
+            Bitboard front_squares = FILE_MASKS[file] & ((1ULL << (rank * 8)) - 1);
+            if ((front_squares & both_occ) == EMPTY_BOARD) {
+                bonus += (10 + (7 - rank) * 4) * eg_weight / 256;
+            }
+            // King proximity in endgame
+            if (has_kings) {
+                int b_dist = std::max(std::abs(get_file(b_ksq) - file), std::abs(get_rank(b_ksq) - rank));
+                int w_dist = std::max(std::abs(get_file(w_ksq) - file), std::abs(get_rank(w_ksq) - 0));
+                bonus += (7 - b_dist) * 3 * eg_weight / 256;
+                bonus += (w_dist - 2) * 3 * eg_weight / 256;
             }
             score -= bonus;
         }
@@ -536,7 +679,7 @@ int evaluate_classical(const Board& board) {
     int score = evaluateMaterial(board)
               + evaluatePieceSquareTables(board, eg_weight)
               + evaluateMobility(board)
-              + evaluatePawnStructure(board)
+              + evaluatePawnStructure(board, eg_weight)
               + evaluateKingSafety(board, eg_weight)
               + evaluateEndgameHeuristics(board);
 
