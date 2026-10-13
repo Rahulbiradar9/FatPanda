@@ -29,6 +29,6 @@ Desktop.ini
 *.exe
 
 # External tools and large binaries
-tools/stockfish/
+tools/
 err.txt
 *.zip
